@@ -3,6 +3,8 @@ from pydantic import BaseModel
 
 from app.database import get_scoped_connection
 from app.dependencies import get_current_user, CurrentUser
+from app.permissions import require_permission, require_row_permission
+from app import schemas
 
 router = APIRouter(prefix="/seats", tags=["accountability-chart"])
 
@@ -22,7 +24,7 @@ class UpdateSeatRequest(BaseModel):
     responsibilities: str | None = None
 
 
-@router.get("")
+@router.get("", response_model=list[schemas.Seat])
 async def list_seats(tenant_id: str | None = Query(default=None), current_user: CurrentUser = Depends(get_current_user)):
     """The Accountability Chart for a tenant — a flat list the UI renders as a tree."""
     target_tenant = tenant_id or current_user.active_tenant_id
@@ -44,6 +46,7 @@ async def list_seats(tenant_id: str | None = Query(default=None), current_user: 
 @router.post("")
 async def create_seat(body: NewSeatRequest, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_permission(conn, current_user.user_id, body.tenant_id, "create")
         row = await conn.fetchrow(
             """
             INSERT INTO seats (tenant_id, title, holder_user_id, parent_seat_id, responsibilities)
@@ -58,6 +61,7 @@ async def create_seat(body: NewSeatRequest, current_user: CurrentUser = Depends(
 @router.patch("/{seat_id}")
 async def update_seat(seat_id: str, body: UpdateSeatRequest, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "seats", seat_id, "edit")
         row = await conn.fetchrow(
             """
             UPDATE seats SET
@@ -79,5 +83,6 @@ async def update_seat(seat_id: str, body: UpdateSeatRequest, current_user: Curre
 async def delete_seat(seat_id: str, current_user: CurrentUser = Depends(get_current_user)):
     """Deleting a seat cascades to seats reporting under it (FK ON DELETE CASCADE)."""
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "seats", seat_id, "delete")
         result = await conn.execute("DELETE FROM seats WHERE id = $1", seat_id)
     return {"deleted": result}

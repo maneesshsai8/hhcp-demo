@@ -3,6 +3,8 @@ from pydantic import BaseModel
 
 from app.database import get_scoped_connection
 from app.dependencies import get_current_user, CurrentUser
+from app.permissions import require_permission, require_row_permission
+from app import schemas
 
 router = APIRouter(prefix="/issues", tags=["issues"])
 
@@ -23,7 +25,7 @@ class UpdateIssueRequest(BaseModel):
     priority: str | None = None
 
 
-@router.get("")
+@router.get("", response_model=list[schemas.Issue])
 async def list_issues(tenant_id: str | None = Query(default=None), current_user: CurrentUser = Depends(get_current_user)):
     target_tenant = tenant_id or current_user.active_tenant_id
     async with get_scoped_connection(current_user.user_id) as conn:
@@ -45,6 +47,7 @@ async def list_issues(tenant_id: str | None = Query(default=None), current_user:
 @router.post("")
 async def create_issue(body: NewIssueRequest, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_permission(conn, current_user.user_id, body.tenant_id, "create")
         row = await conn.fetchrow(
             """
             INSERT INTO issues (tenant_id, title, description, created_by, team_id, priority)
@@ -60,6 +63,7 @@ async def create_issue(body: NewIssueRequest, current_user: CurrentUser = Depend
 async def update_issue(issue_id: str, body: UpdateIssueRequest, current_user: CurrentUser = Depends(get_current_user)):
     """Edit or solve/reopen an issue. Sets solved_at when moving to 'solved'."""
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "issues", issue_id, "edit")
         row = await conn.fetchrow(
             """
             UPDATE issues SET
@@ -86,5 +90,6 @@ async def update_issue(issue_id: str, body: UpdateIssueRequest, current_user: Cu
 @router.delete("/{issue_id}")
 async def delete_issue(issue_id: str, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "issues", issue_id, "delete")
         result = await conn.execute("DELETE FROM issues WHERE id = $1", issue_id)
     return {"deleted": result}

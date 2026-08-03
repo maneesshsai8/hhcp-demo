@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
 
 const EMPTY = { title: "", priority: "", team_id: "", description: "" };
 
 export default function IssuesPage() {
-  const { activeTenantId } = useAuth();
+  const { activeTenantId, can } = useAuth();
   const [issues, setIssues] = useState(null);
   const [teams, setTeams] = useState([]);
   const [error, setError] = useState("");
@@ -48,7 +48,15 @@ export default function IssuesPage() {
           <h1 className="page-title display">Issues</h1>
           <p className="page-sub">Identify and organize the issues that need attention.</p>
         </div>
-        {activeTenantId && <button className="btn-secondary" onClick={() => setOpen(true)}>+ Create Issue</button>}
+        <div className="head-actions">
+          {activeTenantId && issues && issues.length > 0 && (
+            <>
+              <button className="btn-ghost" onClick={() => apiDownload(`/reports/issues.xlsx?tenant_id=${activeTenantId}`, "issues.xlsx").catch((e) => setError(e.message))}>Export Excel</button>
+              <button className="btn-ghost" onClick={() => apiDownload(`/reports/issues.pdf?tenant_id=${activeTenantId}`, "issues.pdf").catch((e) => setError(e.message))}>Export PDF</button>
+            </>
+          )}
+          {activeTenantId && can("create") && <button className="btn-secondary" onClick={() => setOpen(true)}>+ Create Issue</button>}
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -73,7 +81,7 @@ export default function IssuesPage() {
             <div className="card-controls">
               <span className={`badge ${i.status}`}>{i.status}</span>
               <button className="btn-mini" onClick={() => toggleStatus(i)}>{i.status === "open" ? "Mark solved" : "Reopen"}</button>
-              <button className="link-danger" onClick={() => delIssue(i.id)}>Delete</button>
+              {can("delete") && <button className="link-danger" onClick={() => delIssue(i.id)}>Delete</button>}
             </div>
           </div>
         </div>

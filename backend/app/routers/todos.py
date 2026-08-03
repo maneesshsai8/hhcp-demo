@@ -4,6 +4,8 @@ from datetime import date
 
 from app.database import get_scoped_connection
 from app.dependencies import get_current_user, CurrentUser
+from app.permissions import require_permission, require_row_permission
+from app import schemas
 
 router = APIRouter(prefix="/todos", tags=["todos"])
 
@@ -27,7 +29,7 @@ class UpdateTodoRequest(BaseModel):
     status: str | None = None       # 'open' | 'done'
 
 
-@router.get("")
+@router.get("", response_model=list[schemas.Todo])
 async def list_todos(tenant_id: str | None = Query(default=None), current_user: CurrentUser = Depends(get_current_user)):
     target_tenant = tenant_id or current_user.active_tenant_id
     async with get_scoped_connection(current_user.user_id) as conn:
@@ -49,6 +51,7 @@ async def list_todos(tenant_id: str | None = Query(default=None), current_user: 
 @router.post("")
 async def create_todo(body: NewTodoRequest, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_permission(conn, current_user.user_id, body.tenant_id, "create")
         row = await conn.fetchrow(
             """
             INSERT INTO todos (tenant_id, title, description, due_date, owner_id, team_id, is_private)
@@ -64,6 +67,7 @@ async def create_todo(body: NewTodoRequest, current_user: CurrentUser = Depends(
 @router.patch("/{todo_id}")
 async def update_todo(todo_id: str, body: UpdateTodoRequest, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "todos", todo_id, "edit")
         row = await conn.fetchrow(
             """
             UPDATE todos SET
@@ -86,5 +90,6 @@ async def update_todo(todo_id: str, body: UpdateTodoRequest, current_user: Curre
 @router.delete("/{todo_id}")
 async def delete_todo(todo_id: str, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "todos", todo_id, "delete")
         result = await conn.execute("DELETE FROM todos WHERE id = $1", todo_id)
     return {"deleted": result}

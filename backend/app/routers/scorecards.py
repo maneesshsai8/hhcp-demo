@@ -4,6 +4,8 @@ from datetime import datetime
 
 from app.database import get_scoped_connection
 from app.dependencies import get_current_user, CurrentUser
+from app.permissions import require_permission, require_row_permission
+from app import schemas
 
 router = APIRouter(prefix="/scorecards", tags=["scorecards"])
 
@@ -38,7 +40,7 @@ def _is_on_track(operator: str, actual: float, target: float) -> bool:
     return actual == target
 
 
-@router.get("")
+@router.get("", response_model=list[schemas.Scorecard])
 async def get_scorecards(
     tenant_id: str | None = Query(default=None),
     current_user: CurrentUser = Depends(get_current_user),
@@ -51,57 +53,62 @@ async def get_scorecards(
     """
     target_tenant = tenant_id or current_user.active_tenant_id
     async with get_scoped_connection(current_user.user_id) as conn:
-        kpis = await conn.fetch(
+        return await fetch_scorecards(conn, target_tenant)
+
+
+async def fetch_scorecards(conn, target_tenant):
+    """Shared scorecard shaping used by the JSON endpoint and the Excel/PDF exports."""
+    kpis = await conn.fetch(
+        """
+        SELECT k.id, k.title, k.target_value, k.comparison_operator, k.unit,
+               u.name AS owner_name, k.tenant_id
+        FROM kpis k
+        LEFT JOIN users u ON u.id = k.owner_id
+        WHERE ($1::uuid IS NULL OR k.tenant_id = $1::uuid)
+        ORDER BY k.title
+        """,
+        target_tenant,
+    )
+
+    result = []
+    for k in kpis:
+        scores = await conn.fetch(
             """
-            SELECT k.id, k.title, k.target_value, k.comparison_operator, k.unit,
-                   u.name AS owner_name, k.tenant_id
-            FROM kpis k
-            LEFT JOIN users u ON u.id = k.owner_id
-            WHERE ($1::uuid IS NULL OR k.tenant_id = $1::uuid)
-            ORDER BY k.title
+            SELECT recorded_at, actual_value
+            FROM kpi_scores
+            WHERE kpi_id = $1
+            ORDER BY recorded_at DESC
+            LIMIT 13
             """,
-            target_tenant,
+            k["id"],
         )
+        weekly = [
+            {
+                "week_ending": s["recorded_at"].date().isoformat(),
+                "actual_value": float(s["actual_value"]),
+                "status": "ON_TRACK" if _is_on_track(k["comparison_operator"], float(s["actual_value"]), float(k["target_value"])) else "OFF_TRACK",
+            }
+            for s in scores
+        ]
+        # most-recent-first from the query -> streak counts from index 0
+        off_track_streak = 0
+        for w in weekly:
+            if w["status"] == "OFF_TRACK":
+                off_track_streak += 1
+            else:
+                break
 
-        result = []
-        for k in kpis:
-            scores = await conn.fetch(
-                """
-                SELECT recorded_at, actual_value
-                FROM kpi_scores
-                WHERE kpi_id = $1
-                ORDER BY recorded_at DESC
-                LIMIT 13
-                """,
-                k["id"],
-            )
-            weekly = [
-                {
-                    "week_ending": s["recorded_at"].date().isoformat(),
-                    "actual_value": float(s["actual_value"]),
-                    "status": "ON_TRACK" if _is_on_track(k["comparison_operator"], float(s["actual_value"]), float(k["target_value"])) else "OFF_TRACK",
-                }
-                for s in scores
-            ]
-            # most-recent-first from the query -> streak counts from index 0
-            off_track_streak = 0
-            for w in weekly:
-                if w["status"] == "OFF_TRACK":
-                    off_track_streak += 1
-                else:
-                    break
-
-            result.append({
-                "kpi_id": str(k["id"]),
-                "title": k["title"],
-                "owner": k["owner_name"],
-                "target_value": float(k["target_value"]),
-                "comparison_operator": k["comparison_operator"],
-                "unit": k["unit"],
-                "tenant_id": str(k["tenant_id"]),
-                "weekly_history": list(reversed(weekly)),  # chronological for charting
-                "off_track_streak": off_track_streak,
-            })
+        result.append({
+            "kpi_id": str(k["id"]),
+            "title": k["title"],
+            "owner": k["owner_name"],
+            "target_value": float(k["target_value"]),
+            "comparison_operator": k["comparison_operator"],
+            "unit": k["unit"],
+            "tenant_id": str(k["tenant_id"]),
+            "weekly_history": list(reversed(weekly)),  # chronological for charting
+            "off_track_streak": off_track_streak,
+        })
     return result
 
 
@@ -109,6 +116,7 @@ async def get_scorecards(
 async def create_kpi(body: NewKpiRequest, current_user: CurrentUser = Depends(get_current_user)):
     """Create a new measurable. RLS's WITH CHECK refuses tenants you can't see."""
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_permission(conn, current_user.user_id, body.tenant_id, "create")
         row = await conn.fetchrow(
             """
             INSERT INTO kpis (tenant_id, title, owner_id, target_value, comparison_operator, unit)
@@ -125,6 +133,7 @@ async def create_kpi(body: NewKpiRequest, current_user: CurrentUser = Depends(ge
 async def update_kpi(kpi_id: str, body: UpdateKpiRequest, current_user: CurrentUser = Depends(get_current_user)):
     """Edit a KPI's definition. COALESCE keeps unspecified fields unchanged."""
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "kpis", kpi_id, "edit")
         row = await conn.fetchrow(
             """
             UPDATE kpis SET
@@ -146,6 +155,7 @@ async def update_kpi(kpi_id: str, body: UpdateKpiRequest, current_user: CurrentU
 @router.delete("/{kpi_id}")
 async def delete_kpi(kpi_id: str, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "kpis", kpi_id, "delete")
         result = await conn.execute("DELETE FROM kpis WHERE id = $1", kpi_id)
     return {"deleted": result}
 
@@ -170,6 +180,8 @@ async def add_score(kpi_id: str, body: NewScoreRequest, current_user: CurrentUse
         )
         if kpi is None:
             raise HTTPException(status_code=404, detail="KPI not found or not accessible")
+
+        await require_permission(conn, current_user.user_id, str(kpi["tenant_id"]), "create")
 
         await conn.execute(
             "INSERT INTO kpi_scores (tenant_id, kpi_id, recorded_at, actual_value) VALUES ($1, $2, $3, $4)",

@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
 
 const EMPTY = { title: "", due_date: "", status: "on_track", team_id: "", owner_id: "", description: "" };
 
 export default function RocksPage() {
-  const { activeTenantId } = useAuth();
+  const { activeTenantId, can } = useAuth();
   const [rocks, setRocks] = useState(null);
   const [teams, setTeams] = useState([]);
   const [people, setPeople] = useState([]);
@@ -50,7 +50,15 @@ export default function RocksPage() {
           <h1 className="page-title display">Rocks</h1>
           <p className="page-sub">Set and track this tenant&rsquo;s priorities.</p>
         </div>
-        {activeTenantId && <button className="btn-secondary" onClick={() => setOpen(true)}>+ Create Rock</button>}
+        <div className="head-actions">
+          {activeTenantId && rocks && rocks.length > 0 && (
+            <>
+              <button className="btn-ghost" onClick={() => apiDownload(`/reports/rocks.xlsx?tenant_id=${activeTenantId}`, "rocks.xlsx").catch((e) => setError(e.message))}>Export Excel</button>
+              <button className="btn-ghost" onClick={() => apiDownload(`/reports/rocks.pdf?tenant_id=${activeTenantId}`, "rocks.pdf").catch((e) => setError(e.message))}>Export PDF</button>
+            </>
+          )}
+          {activeTenantId && can("create") && <button className="btn-secondary" onClick={() => setOpen(true)}>+ Create Rock</button>}
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -78,7 +86,7 @@ export default function RocksPage() {
                 <option value="off_track">off track</option>
                 <option value="complete">complete</option>
               </select>
-              <button className="link-danger" onClick={() => delRock(r.id)}>Delete</button>
+              {can("delete") && <button className="link-danger" onClick={() => delRock(r.id)}>Delete</button>}
             </div>
           </div>
         </div>

@@ -4,6 +4,8 @@ from datetime import datetime
 
 from app.database import get_scoped_connection
 from app.dependencies import get_current_user, CurrentUser
+from app.permissions import require_permission, require_row_permission
+from app import schemas
 
 router = APIRouter(prefix="/meetings", tags=["meetings"])
 
@@ -22,7 +24,7 @@ class UpdateMeetingRequest(BaseModel):
     notes: str | None = None
 
 
-@router.get("")
+@router.get("", response_model=list[schemas.Meeting])
 async def list_meetings(tenant_id: str | None = Query(default=None), current_user: CurrentUser = Depends(get_current_user)):
     target_tenant = tenant_id or current_user.active_tenant_id
     async with get_scoped_connection(current_user.user_id) as conn:
@@ -43,6 +45,7 @@ async def list_meetings(tenant_id: str | None = Query(default=None), current_use
 @router.post("")
 async def create_meeting(body: NewMeetingRequest, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_permission(conn, current_user.user_id, body.tenant_id, "create")
         row = await conn.fetchrow(
             """
             INSERT INTO meetings (tenant_id, title, scheduled_at, notes, created_by)
@@ -57,6 +60,7 @@ async def create_meeting(body: NewMeetingRequest, current_user: CurrentUser = De
 @router.patch("/{meeting_id}")
 async def update_meeting(meeting_id: str, body: UpdateMeetingRequest, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "meetings", meeting_id, "edit")
         row = await conn.fetchrow(
             """
             UPDATE meetings SET
@@ -77,5 +81,6 @@ async def update_meeting(meeting_id: str, body: UpdateMeetingRequest, current_us
 @router.delete("/{meeting_id}")
 async def delete_meeting(meeting_id: str, current_user: CurrentUser = Depends(get_current_user)):
     async with get_scoped_connection(current_user.user_id) as conn:
+        await require_row_permission(conn, current_user.user_id, "meetings", meeting_id, "delete")
         result = await conn.execute("DELETE FROM meetings WHERE id = $1", meeting_id)
     return {"deleted": result}

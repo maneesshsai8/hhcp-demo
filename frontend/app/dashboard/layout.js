@@ -74,7 +74,7 @@ const MODULES = [
 ];
 
 export default function DashboardLayout({ children }) {
-  const { loading, user, accessibleTenants, activeTenantId, switchTenant, logout } = useAuth();
+  const { loading, user, accessibleTenants, activeTenantId, activeRole, switchTenant, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -123,7 +123,7 @@ export default function DashboardLayout({ children }) {
           <button className={`ws-current ${wsOpen ? "open" : ""}`} onClick={() => setWsOpen((o) => !o)}>
             <span className="ws-current-text">
               <span className="ws-current-name">{currentLabel}</span>
-              <span className="ws-current-role">{user.is_fund_admin ? "Fund Admin · Tier 1" : "Tenant access · Tier 2"}</span>
+              <span className="ws-current-role">{activeRole ? activeRole.replace(/_/g, " ") : (user.is_fund_admin ? "fund admin" : "no access")}</span>
             </span>
             <Chevron open={wsOpen} />
           </button>

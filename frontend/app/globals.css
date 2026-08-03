@@ -524,6 +524,7 @@ button, input, select { font-family: inherit; font-size: inherit; }
 
 /* ---------- CRUD controls on cards ---------- */
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .inline-form { padding: 16px 18px; }
 .card-controls { display: flex; align-items: center; gap: 12px; }
 .card-actions {

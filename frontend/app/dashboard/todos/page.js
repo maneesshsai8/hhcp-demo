@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
 
 const EMPTY = { title: "", due_date: "", team_id: "", owner_id: "", is_private: false, description: "" };
 
 export default function TodosPage() {
-  const { activeTenantId } = useAuth();
+  const { activeTenantId, can } = useAuth();
   const [todos, setTodos] = useState(null);
   const [teams, setTeams] = useState([]);
   const [people, setPeople] = useState([]);
@@ -50,7 +50,15 @@ export default function TodosPage() {
           <h1 className="page-title display">To-Dos</h1>
           <p className="page-sub">Create, assign, and track deadlines for critical tasks.</p>
         </div>
-        {activeTenantId && <button className="btn-secondary" onClick={() => setOpen(true)}>+ Create To-Do</button>}
+        <div className="head-actions">
+          {activeTenantId && todos && todos.length > 0 && (
+            <>
+              <button className="btn-ghost" onClick={() => apiDownload(`/reports/todos.xlsx?tenant_id=${activeTenantId}`, "todos.xlsx").catch((e) => setError(e.message))}>Export Excel</button>
+              <button className="btn-ghost" onClick={() => apiDownload(`/reports/todos.pdf?tenant_id=${activeTenantId}`, "todos.pdf").catch((e) => setError(e.message))}>Export PDF</button>
+            </>
+          )}
+          {activeTenantId && can("create") && <button className="btn-secondary" onClick={() => setOpen(true)}>+ Create To-Do</button>}
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -75,7 +83,7 @@ export default function TodosPage() {
                 </p>
               </div>
             </div>
-            <button className="link-danger" onClick={() => del(t.id)}>Delete</button>
+            {can("delete") && <button className="link-danger" onClick={() => del(t.id)}>Delete</button>}
           </div>
         </div>
       ))}

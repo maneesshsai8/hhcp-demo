@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends
 
 from app.database import get_scoped_connection
 from app.dependencies import get_current_user, CurrentUser
+from app import schemas
 
 router = APIRouter(prefix="/directory", tags=["directory"])
 
 
-@router.get("")
+@router.get("", response_model=list[schemas.Person])
 async def directory(current_user: CurrentUser = Depends(get_current_user)):
     """
     Users the caller can assign work to — powers the Owner dropdowns in the

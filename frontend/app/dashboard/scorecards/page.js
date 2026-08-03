@@ -1,12 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 
 const OPS = [">=", "<=", "="];
 
 export default function ScorecardsPage() {
-  const { activeTenantId } = useAuth();
+  const { activeTenantId, can } = useAuth();
   const [kpis, setKpis] = useState(null);
   const [error, setError] = useState("");
   const [showNew, setShowNew] = useState(false);
@@ -34,6 +34,12 @@ export default function ScorecardsPage() {
     if (!confirm("Delete this KPI and its history?")) return;
     try { await apiFetch(`/scorecards/${id}`, { method: "DELETE" }); load(); } catch (e) { setError(e.message); }
   }
+  async function exportFile(kind) {
+    try {
+      await apiDownload(`/reports/scorecard.${kind}?tenant_id=${activeTenantId}`, `scorecard.${kind}`);
+    } catch (e) { setError(e.message); }
+  }
+
   async function addScore(id) {
     const v = scoreDraft[id];
     if (v === undefined || v === "") return;
@@ -51,7 +57,15 @@ export default function ScorecardsPage() {
           <h1 className="page-title display">Scorecards</h1>
           <p className="page-sub">Weekly measurables, most recent 13 weeks.</p>
         </div>
-        {activeTenantId && <button className="btn-secondary" onClick={() => setShowNew((s) => !s)}>{showNew ? "Cancel" : "+ New KPI"}</button>}
+        <div className="head-actions">
+          {activeTenantId && kpis && kpis.length > 0 && (
+            <>
+              <button className="btn-ghost" onClick={() => exportFile("xlsx")}>Export Excel</button>
+              <button className="btn-ghost" onClick={() => exportFile("pdf")}>Export PDF</button>
+            </>
+          )}
+          {activeTenantId && can("create") && <button className="btn-secondary" onClick={() => setShowNew((s) => !s)}>{showNew ? "Cancel" : "+ New KPI"}</button>}
+        </div>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -101,10 +115,12 @@ export default function ScorecardsPage() {
             )}
 
             <div className="card-actions">
-              <input className="mini-input" type="number" step="any" placeholder="this week's value"
-                value={scoreDraft[k.kpi_id] ?? ""} onChange={(e) => setScoreDraft({ ...scoreDraft, [k.kpi_id]: e.target.value })} />
-              <button className="btn-mini" onClick={() => addScore(k.kpi_id)}>Add score</button>
-              <button className="link-danger" onClick={() => delKpi(k.kpi_id)}>Delete KPI</button>
+              {can("create") && <>
+                <input className="mini-input" type="number" step="any" placeholder="this week's value"
+                  value={scoreDraft[k.kpi_id] ?? ""} onChange={(e) => setScoreDraft({ ...scoreDraft, [k.kpi_id]: e.target.value })} />
+                <button className="btn-mini" onClick={() => addScore(k.kpi_id)}>Add score</button>
+              </>}
+              {can("delete") && <button className="link-danger" onClick={() => delKpi(k.kpi_id)}>Delete KPI</button>}
             </div>
           </div>
         );

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from app.database import get_scoped_connection
+from app import schemas
 from app.security import (
     verify_password,
     create_access_token,
@@ -31,10 +32,12 @@ async def _accessible_tenants_for(user_id: str):
     async with get_scoped_connection(user_id) as conn:
         rows = await conn.fetch(
             """
-            SELECT o.id, o.name, o.tenant_type, o.parent_tenant_id
+            SELECT o.id, o.name, o.tenant_type, o.parent_tenant_id,
+                   user_role_for_tenant($1, o.id) AS role
             FROM organizations o
             ORDER BY o.tenant_type, o.name
-            """
+            """,
+            user_id,
         )
         is_fund_admin = await conn.fetchval(
             "SELECT EXISTS (SELECT 1 FROM fund_roles WHERE user_id = $1 AND role = 'fund_admin')",
@@ -144,7 +147,7 @@ async def switch_tenant(body: SwitchTenantRequest, current_user: CurrentUser = D
     return {"access_token": new_access_token, "active_tenant_id": body.tenant_id}
 
 
-@router.get("/me")
+@router.get("/me", response_model=schemas.MeResponse)
 async def me(current_user: CurrentUser = Depends(get_current_user)):
     tenants, is_fund_admin = await _accessible_tenants_for(current_user.user_id)
     async with get_scoped_connection(current_user.user_id) as conn:

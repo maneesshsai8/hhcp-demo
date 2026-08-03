@@ -3,7 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import create_pool, close_pool
-from app.routers import auth, organizations, scorecards, rocks, issues, users, teams, meetings, seats, todos, directory
+from app.routers import auth, organizations, scorecards, rocks, issues, users, teams, meetings, seats, todos, directory, reports
+from app.middleware import SecurityHeadersMiddleware, RateLimitMiddleware
 
 
 @asynccontextmanager
@@ -21,7 +22,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "Retry-After", "X-Report-Engine"],
 )
+# Gateway-concern middleware (see app/middleware.py). Added after CORS so these
+# run inside it — CORS/preflight is handled first.
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware, limit=200, window=60)
 
 app.include_router(auth.router)
 app.include_router(organizations.router)
@@ -34,6 +40,7 @@ app.include_router(meetings.router)
 app.include_router(seats.router)
 app.include_router(todos.router)
 app.include_router(directory.router)
+app.include_router(reports.router)
 
 
 @app.get("/health")

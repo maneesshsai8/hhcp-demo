@@ -12,24 +12,24 @@ function buildTree(seats) {
   return byParent;
 }
 
-function SeatNodes({ nodes, byParent, depth, onDelete }) {
+function SeatNodes({ nodes, byParent, depth, onDelete, canDelete }) {
   return nodes.map((s) => (
     <div key={s.id} className="seat-branch" style={{ marginLeft: depth * 22 }}>
       <div className="seat-card">
         <div className="seat-head">
           <span className="seat-title">{s.title}</span>
-          <button className="link-danger" onClick={() => onDelete(s.id)}>Delete</button>
+          {canDelete && <button className="link-danger" onClick={() => onDelete(s.id)}>Delete</button>}
         </div>
         <p className="seat-holder">{s.holder_name ? `Held by ${s.holder_name}` : "Vacant seat"}</p>
         {s.responsibilities && <p className="seat-resp">{s.responsibilities}</p>}
       </div>
-      {byParent[s.id] && <SeatNodes nodes={byParent[s.id]} byParent={byParent} depth={depth + 1} onDelete={onDelete} />}
+      {byParent[s.id] && <SeatNodes nodes={byParent[s.id]} byParent={byParent} depth={depth + 1} onDelete={onDelete} canDelete={canDelete} />}
     </div>
   ));
 }
 
 export default function AccountabilityPage() {
-  const { activeTenantId } = useAuth();
+  const { activeTenantId, can } = useAuth();
   const [seats, setSeats] = useState(null);
   const [users, setUsers] = useState([]);
   const [error, setError] = useState("");
@@ -69,7 +69,7 @@ export default function AccountabilityPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      {activeTenantId && (
+      {activeTenantId && can("create") && (
         <form className="card inline-form" onSubmit={create}>
           <div className="admin-grid">
             <label>Seat title<input value={s.title} onChange={(e) => setS({ ...s, title: e.target.value })} required placeholder="Visionary" /></label>
@@ -98,7 +98,7 @@ export default function AccountabilityPage() {
 
       {seats && seats.length > 0 && (
         <div className="seat-tree">
-          <SeatNodes nodes={byParent["root"] || []} byParent={byParent} depth={0} onDelete={del} />
+          <SeatNodes nodes={byParent["root"] || []} byParent={byParent} depth={0} onDelete={del} canDelete={can("delete")} />
         </div>
       )}
     </div>

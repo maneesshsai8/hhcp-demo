@@ -6,7 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 const STATUSES = ["scheduled", "in_progress", "completed"];
 
 export default function MeetingsPage() {
-  const { activeTenantId } = useAuth();
+  const { activeTenantId, can } = useAuth();
   const [meetings, setMeetings] = useState(null);
   const [error, setError] = useState("");
   const [m, setM] = useState({ title: "", scheduled_at: "" });
@@ -45,7 +45,7 @@ export default function MeetingsPage() {
 
       {error && <div className="error-banner">{error}</div>}
 
-      {activeTenantId && (
+      {activeTenantId && can("create") && (
         <form className="new-item-form" onSubmit={create}>
           <input placeholder="Meeting title, e.g. Weekly L10" value={m.title} onChange={(e) => setM({ ...m, title: e.target.value })} />
           <input className="inline-select" type="datetime-local" value={m.scheduled_at} onChange={(e) => setM({ ...m, scheduled_at: e.target.value })} />
@@ -72,7 +72,7 @@ export default function MeetingsPage() {
               <select className="status-select" value={mt.status} onChange={(e) => setStatus(mt.id, e.target.value)}>
                 {STATUSES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
               </select>
-              <button className="link-danger" onClick={() => del(mt.id)}>Delete</button>
+              {can("delete") && <button className="link-danger" onClick={() => del(mt.id)}>Delete</button>}
             </div>
           </div>
           <textarea className="notes-box" defaultValue={mt.notes || ""} placeholder="Meeting notes…"

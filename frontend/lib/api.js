@@ -63,6 +63,35 @@ export async function apiFetch(path, options = {}) {
   return res.json();
 }
 
+/**
+ * Download a binary export (xlsx/pdf) through the authenticated API, then
+ * trigger a browser save. Same 401 → refresh → retry flow as apiFetch.
+ */
+export async function apiDownload(path, filename) {
+  let auth = getStoredAuth();
+  if (!auth?.access_token) throw new Error("not authenticated");
+
+  const attempt = (token) => fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  let res = await attempt(auth.access_token);
+  if (res.status === 401) {
+    auth = await doRefresh();
+    res = await attempt(auth.access_token);
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `Export failed (${res.status})`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export async function login(email, password) {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
