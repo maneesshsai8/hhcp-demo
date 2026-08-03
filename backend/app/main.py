@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import create_pool, close_pool
 from app.routers import auth, organizations, scorecards, rocks, issues, users, teams, meetings, seats, todos, directory, reports
 from app.middleware import SecurityHeadersMiddleware, RateLimitMiddleware
+from app.realtime import meeting_ws
 
 
 @asynccontextmanager
@@ -41,6 +42,9 @@ app.include_router(seats.router)
 app.include_router(todos.router)
 app.include_router(directory.router)
 app.include_router(reports.router)
+
+
+app.add_api_websocket_route("/ws/meetings/{meeting_id}", meeting_ws)
 
 
 @app.get("/health")

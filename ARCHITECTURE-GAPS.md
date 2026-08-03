@@ -87,6 +87,29 @@ version is the honest stand-in and keeps the same end result for the demo.
 
 ---
 
+## 4b. Live meetings — real-time collaboration ✅ (was a gap, now built)
+
+The L10 meeting runner is **multi-user live** over WebSockets
+(`backend/app/realtime.py`, route `/ws/meetings/{id}`). An in-process room
+manager tracks who's connected per meeting and broadcasts three message types:
+`presence` (drives live "N of M present"), `section` (everyone follows the
+facilitator through the agenda), and `refetch` (someone added an Issue or
+toggled a To-Do → all clients reload that list). Verified with two distinct
+users: a second participant joining flips the attendance counter live with no
+refresh.
+
+**🟡 Simplifications vs production:**
+- **In-process room state** → won't span multiple backend instances. Production
+  needs a shared bus (**Redis pub/sub**) so a broadcast reaches sockets on every
+  instance.
+- **Token in the WS query string** for auth → convenient for the demo; production
+  should use a proper socket auth handshake (short-lived ticket or subprotocol).
+- No conflict resolution / operational-transform for simultaneous edits — last
+  write wins, which is fine for L10-style turn-taking but not for free-form
+  co-editing.
+
+---
+
 ## 5. Document & spreadsheet generation ✅ (was a gap, now built)
 
 The blueprint described a document/export subsystem (Playwright HTML→PDF workers,

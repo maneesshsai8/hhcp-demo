@@ -127,6 +127,11 @@ class Meeting(BaseModel):
     notes: str | None = None
     tenant_id: UUID
     created_by_name: str | None = None
+    agenda_key: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    rating: float | None = None
+    duration_seconds: int | None = None
 
 
 class Seat(BaseModel):

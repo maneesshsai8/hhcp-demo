@@ -401,6 +401,8 @@ button, input, select { font-family: inherit; font-size: inherit; }
   white-space: nowrap;
 }
 .btn-secondary:hover { background: var(--navy-deep); }
+.btn-secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+.btn-ghost:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .inline-select {
   padding: 8px 11px;
@@ -564,6 +566,87 @@ button, input, select { font-family: inherit; font-size: inherit; }
 .seat-title { font-weight: 600; color: var(--navy-deep); font-size: 14px; }
 .seat-holder { font-size: 12px; color: var(--ink-soft); margin: 2px 0 0; }
 .seat-resp { font-size: 12.5px; color: var(--ink); margin: 6px 0 0; }
+
+/* ---------- Meetings: subtabs, history, agendas ---------- */
+.subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+.subtab {
+  background: none; border: none; cursor: pointer;
+  padding: 10px 14px; font-size: 13px; font-weight: 500; color: var(--ink-soft);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.subtab:hover { color: var(--ink); }
+.subtab.active { color: var(--navy-deep); border-bottom-color: var(--brass); }
+
+.meeting-cta { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.count-chip { background: var(--line-soft); color: var(--ink-soft); border-radius: 999px; padding: 1px 9px; font-size: 12px; font-weight: 600; margin-left: 6px; }
+
+.history-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.history-table th { text-align: left; color: var(--ink-soft); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.history-table td { padding: 9px 10px; border-bottom: 1px solid var(--line-soft); }
+
+.agenda-sections { margin-top: 12px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+.agenda-sec { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 13px; }
+.agenda-sec-n { width: 20px; height: 20px; border-radius: 50%; background: var(--line-soft); color: var(--ink-soft); font-size: 11px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.agenda-sec-label { flex: 1; }
+.agenda-sec-min { color: var(--ink-soft); font-size: 12px; }
+
+.agenda-pick-list { display: flex; flex-direction: column; gap: 6px; }
+.agenda-pick {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface); cursor: pointer; font-size: 14px; color: var(--ink); text-align: left;
+}
+.agenda-pick:hover { border-color: var(--brass); background: var(--paper); }
+
+/* ---------- Meetings: live runner ---------- */
+.runner { display: flex; gap: 20px; align-items: flex-start; }
+.runner-rail {
+  width: 220px; flex-shrink: 0; position: sticky; top: 20px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px;
+}
+.runner-total { display: flex; flex-direction: column; align-items: center; padding-bottom: 12px; border-bottom: 1px solid var(--line-soft); margin-bottom: 10px; }
+.runner-total-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); }
+.runner-total-time { font-family: var(--font-display); font-size: 26px; color: var(--navy-deep); font-weight: 600; }
+.runner-secs { display: flex; flex-direction: column; gap: 2px; }
+.runner-sec {
+  display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-radius: 6px;
+  border: none; background: none; cursor: pointer; text-align: left; color: var(--ink); font-size: 12.5px; width: 100%;
+}
+.runner-sec:hover { background: var(--paper); }
+.runner-sec.active { background: var(--brass); color: #241a0a; font-weight: 600; }
+.runner-sec.done { color: var(--ink-soft); }
+.runner-sec-n { width: 18px; height: 18px; border-radius: 50%; background: rgba(0,0,0,0.08); font-size: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.runner-sec.active .runner-sec-n { background: rgba(0,0,0,0.18); }
+.runner-sec-label { flex: 1; }
+.runner-sec-min { font-size: 11px; opacity: 0.7; }
+.runner-finish { width: 100%; margin-top: 14px; }
+
+.runner-main { flex: 1; min-width: 0; }
+.runner-head { margin-bottom: 16px; }
+.runner-agenda { font-family: var(--font-body); font-size: 14px; font-weight: 400; color: var(--ink-soft); }
+.run-prompt { font-size: 14px; color: var(--navy-deep); margin: 0 0 14px; }
+.run-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line-soft); font-size: 13px; }
+.run-line:last-child { border-bottom: none; }
+.attendance-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.att-chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 13px; }
+.att-chip.here { background: var(--on-track-bg); border-color: var(--on-track); color: var(--on-track); font-weight: 600; }
+.runner-controls { display: flex; justify-content: space-between; margin-top: 16px; }
+.run-line.clickable { cursor: pointer; }
+.run-line.clickable:hover { background: var(--paper); }
+.live-dot { font-size: 10px; margin-top: 4px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.05em; }
+.live-dot.on { color: var(--on-track); font-weight: 600; }
+
+/* live attendance bar in the runner header */
+.attendance-bar { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.attendance-bar strong { font-size: 12px; color: var(--navy-deep); }
+.att-avatars { display: flex; gap: 4px; flex-wrap: wrap; }
+.att-av {
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--line-soft); color: var(--ink-soft);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 600; border: 2px solid transparent;
+}
+.att-av.here { background: var(--on-track-bg); color: var(--on-track); border-color: var(--on-track); }
 
 /* ---------- Create modal (Ninety-style) ---------- */
 .modal-overlay {
