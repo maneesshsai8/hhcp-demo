@@ -18,6 +18,7 @@ class MeUser(BaseModel):
     name: str
     email: str
     is_fund_admin: bool
+    is_fund_viewer: bool = False
 
 
 class MeTenant(BaseModel):
@@ -69,18 +70,27 @@ class Team(BaseModel):
 class WeeklyPoint(BaseModel):
     week_ending: str
     actual_value: float
-    status: str
+    rag: str = "GREEN"          # 'GREEN' | 'YELLOW' | 'RED'
+    status: str                 # legacy: 'ON_TRACK' | 'OFF_TRACK'
 
 
 class Scorecard(BaseModel):
     kpi_id: UUID
     title: str
+    description: str | None = None
+    frequency: str = "weekly"
+    direction: str = "higher_is_better"
     owner: str | None = None
+    owner_id: UUID | None = None
     target_value: float
+    green_threshold: float | None = None
+    red_threshold: float | None = None
     comparison_operator: str
     unit: str | None = None
+    sort_order: int = 0
     tenant_id: UUID
     weekly_history: list[WeeklyPoint]
+    current_rag: str | None = None
     off_track_streak: int
 
 
@@ -93,6 +103,10 @@ class Rock(BaseModel):
     description: str | None = None
     owner_name: str | None = None
     team_name: str | None = None
+    workstream_id: UUID | None = None
+    workstream_name: str | None = None
+    vcb_id: UUID | None = None
+    vcb_title: str | None = None
 
 
 class Issue(BaseModel):

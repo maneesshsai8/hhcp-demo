@@ -102,8 +102,9 @@ refresh.
 - **In-process room state** → won't span multiple backend instances. Production
   needs a shared bus (**Redis pub/sub**) so a broadcast reaches sockets on every
   instance.
-- **Token in the WS query string** for auth → convenient for the demo; production
-  should use a proper socket auth handshake (short-lived ticket or subprotocol).
+- **WS auth via httpOnly cookie** — the access-token cookie is sent automatically
+  on the WebSocket handshake (a query-param token remains as a non-browser
+  fallback). This closed the earlier "token in the URL" gap.
 - No conflict resolution / operational-transform for simultaneous edits — last
   write wins, which is fine for L10-style turn-taking but not for free-form
   co-editing.

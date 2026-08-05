@@ -66,7 +66,7 @@ mgr_b_id = insert_user("manager.b@restaurantb.com", "Restaurant B Manager")
 mgr_ft_id = insert_user("manager.ft@restaurantA.com", "Food Truck Manager")
 
 print("Assigning Tier 1 fund role...")
-cur.execute("INSERT INTO fund_roles (user_id, role) VALUES (%s, 'fund_admin')", (admin_id,))
+cur.execute("UPDATE users SET is_fund_admin = true WHERE id = %s", (admin_id,))
 
 print("Assigning Tier 2 tenant grants...")
 cur.execute(

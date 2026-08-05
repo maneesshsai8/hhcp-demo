@@ -24,23 +24,16 @@ CREATE INDEX idx_organizations_parent ON organizations(parent_tenant_id);
 -- ---------------------------------------------------------------------------
 -- 2. users: just people, deliberately with no tenant column at all
 -- ---------------------------------------------------------------------------
+-- is_fund_admin: Tier 1 — Hidden Harbor's own staff, above every tenant. A
+-- user has at most one fund-level role and it's only ever "admin", so it's a
+-- flag here rather than its own table.
 CREATE TABLE users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email           TEXT UNIQUE NOT NULL,
     name            TEXT NOT NULL,
     password_hash   TEXT NOT NULL,
+    is_fund_admin   BOOLEAN NOT NULL DEFAULT false,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- ---------------------------------------------------------------------------
--- 3. fund_roles: Tier 1 — Hidden Harbor's own staff, above every tenant
--- ---------------------------------------------------------------------------
-CREATE TABLE fund_roles (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role        TEXT NOT NULL CHECK (role IN ('fund_admin', 'fund_viewer')),
-    granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE(user_id, role)
 );
 
 -- ---------------------------------------------------------------------------
@@ -50,7 +43,7 @@ CREATE TABLE tenant_memberships (
     id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     tenant_id   UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    role        TEXT NOT NULL CHECK (role IN ('lead_partner', 'deal_qb', 'ops_qb', 'portco_management', 'addon_management')),
+    role        TEXT NOT NULL CHECK (role IN ('lead_partner', 'deal_qb', 'ops_qb', 'portco_management', 'addon_management', 'deal_team', 'pog_member')),
     granted_by  UUID REFERENCES users(id),
     granted_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(user_id, tenant_id)
@@ -133,7 +126,7 @@ CREATE INDEX idx_issues_tenant ON issues(tenant_id);
 -- THE CORE AUTHORIZATION FUNCTION (Option B — database-driven, live-checked)
 -- ============================================================================
 -- Given a user, returns every tenant_id they're currently allowed to see:
---   - Fund-level staff (any fund_roles row) see EVERY tenant (Tier 1 rollup)
+--   - Fund-level staff (users.is_fund_admin) see EVERY tenant (Tier 1 rollup)
 --   - Everyone else sees exactly the tenants they've been granted (Tier 2),
 --     PLUS every descendant underneath those tenants (cascading access)
 -- This is re-evaluated on every single query. Revoke a grant, and the very
@@ -152,7 +145,7 @@ BEGIN
     END IF;
 
     -- Tier 1: fund-level staff see the entire portfolio (read/rollup access)
-    IF EXISTS (SELECT 1 FROM fund_roles fr WHERE fr.user_id = p_user_id) THEN
+    IF (SELECT u.is_fund_admin FROM users u WHERE u.id = p_user_id) THEN
         RETURN QUERY SELECT o.id FROM organizations o;
         RETURN;
     END IF;
@@ -189,7 +182,7 @@ CREATE POLICY tenant_isolation_memberships ON tenant_memberships
     FOR ALL
     USING (
         user_id = current_setting('app.current_user_id', true)::uuid
-        OR EXISTS (SELECT 1 FROM fund_roles fr WHERE fr.user_id = current_setting('app.current_user_id', true)::uuid)
+        OR (SELECT u.is_fund_admin FROM users u WHERE u.id = current_setting('app.current_user_id', true)::uuid)
     );
 
 ALTER TABLE kpis ENABLE ROW LEVEL SECURITY;

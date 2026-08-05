@@ -29,6 +29,12 @@ async def close_pool():
         await _pool.close()
 
 
+def pool():
+    """The raw connection pool (no RLS context) — for identity lookups that
+    aren't tenant-scoped, e.g. mapping a Supabase sub to our users.id."""
+    return _pool
+
+
 @contextlib.asynccontextmanager
 async def get_scoped_connection(user_id: Optional[str]):
     """

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiFetch, getStoredAuth, API_BASE } from "@/lib/api";
+import { apiFetch, API_BASE } from "@/lib/api";
 
 function clock(sec) {
   const m = Math.floor(sec / 60), s = sec % 60;
@@ -100,9 +100,9 @@ export default function MeetingRunner() {
 
   // ---- WebSocket: presence + section follow + refetch relay ----
   useEffect(() => {
-    const auth = getStoredAuth();
-    if (!auth?.access_token) return;
-    const wsUrl = `${API_BASE.replace(/^http/, "ws")}/ws/meetings/${id}?token=${auth.access_token}`;
+    // The httpOnly access-token cookie is sent automatically on the WS
+    // handshake — no token in the URL anymore.
+    const wsUrl = `${API_BASE.replace(/^http/, "ws")}/ws/meetings/${id}`;
     let ws, closed = false;
     function connect() {
       ws = new WebSocket(wsUrl);

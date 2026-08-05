@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { getStoredAuth, clearAuth, apiFetch, switchTenant as apiSwitchTenant } from "./api";
+import { apiFetch, switchTenant as apiSwitchTenant, logout as apiLogout, setActiveTenant } from "./api";
 
 const AuthContext = createContext(null);
 
@@ -14,6 +14,11 @@ const ROLE_PERMISSIONS = {
   portco_management: ["view", "create", "edit", "delete"],
   ops_qb: ["view", "create", "edit"],
   addon_management: ["view", "create", "edit"],
+  deal_team: ["view", "create", "edit"],
+  pog_member: ["view"],
+  manager: ["view", "create", "edit", "delete"],
+  team_member: ["view", "create", "edit"],
+  read_only: ["view"],
 };
 
 export function AuthProvider({ children }) {
@@ -21,26 +26,33 @@ export function AuthProvider({ children }) {
   const router = useRouter();
 
   const load = useCallback(async () => {
-    const auth = getStoredAuth();
-    if (!auth?.access_token) {
-      setState({ loading: false, user: null, accessibleTenants: [], activeTenantId: null });
-      return;
-    }
+    // No token to check on the client anymore — just ask the server who we are.
+    // If the cookie is missing/expired (and refresh fails), this throws → logged out.
     try {
       const me = await apiFetch("/auth/me");
+      // Non-admins with no active tenant (e.g. under Supabase auth, where the
+      // token doesn't carry one) default into their first PortCo so the app is
+      // scoped to a single tenant, like fund admins default into rollup.
+      let active = me.active_tenant_id;
+      if (!active && !me.user.is_fund_admin && me.accessible_tenants.length) {
+        const first = me.accessible_tenants.find((t) => t.tenant_type === "portco") || me.accessible_tenants[0];
+        active = first.id;
+        setActiveTenant(active);
+      }
       setState({
         loading: false,
         user: me.user,
         accessibleTenants: me.accessible_tenants,
-        activeTenantId: me.active_tenant_id,
+        activeTenantId: active,
       });
     } catch (e) {
-      clearAuth();
       setState({ loading: false, user: null, accessibleTenants: [], activeTenantId: null });
     }
   }, []);
 
   useEffect(() => {
+    // Both providers now persist the session in an httpOnly cookie, so a single
+    // /auth/me on mount restores it on reload.
     load();
   }, [load]);
 
@@ -49,8 +61,8 @@ export function AuthProvider({ children }) {
     setState((s) => ({ ...s, activeTenantId: tenantId }));
   };
 
-  const logout = () => {
-    clearAuth();
+  const logout = async () => {
+    await apiLogout();
     setState({ loading: false, user: null, accessibleTenants: [], activeTenantId: null });
     router.push("/login");
   };

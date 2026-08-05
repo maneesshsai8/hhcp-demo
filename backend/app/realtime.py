@@ -42,7 +42,9 @@ async def _broadcast(meeting_id: str, message: dict):
 
 
 async def meeting_ws(websocket: WebSocket, meeting_id: str):
-    token = websocket.query_params.get("token")
+    # Prefer the httpOnly cookie (sent automatically on the WS handshake);
+    # fall back to a query-param token for non-browser clients.
+    token = websocket.cookies.get("access_token") or websocket.query_params.get("token")
     try:
         payload = decode_access_token(token)
         user_id = payload["user_id"]

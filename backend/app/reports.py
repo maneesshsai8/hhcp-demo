@@ -162,6 +162,7 @@ def build_scorecard_xlsx(tenant_name: str, scorecards: list[dict]) -> bytes:
     navy = "1B3A5C"
     on_fill = PatternFill("solid", fgColor="E7F3EC")
     off_fill = PatternFill("solid", fgColor="FBEAE7")
+    mid_fill = PatternFill("solid", fgColor="FCF3D9")
     head_fill = PatternFill("solid", fgColor=navy)
     head_font = Font(color="FFFFFF", bold=True)
     thin = Side(style="thin", color="DFE2DC")
@@ -201,7 +202,8 @@ def build_scorecard_xlsx(tenant_name: str, scorecards: list[dict]) -> bytes:
             w = by_week.get(wk)
             if w:
                 cell.value = w["actual_value"]
-                cell.fill = on_fill if w["status"] == "ON_TRACK" else off_fill
+                rag = w.get("rag") or ("GREEN" if w["status"] == "ON_TRACK" else "RED")
+                cell.fill = {"GREEN": on_fill, "YELLOW": mid_fill, "RED": off_fill}.get(rag, off_fill)
 
     ws.column_dimensions["A"].width = 26
     ws.column_dimensions["B"].width = 18
@@ -225,7 +227,8 @@ def build_scorecard_html(tenant_name: str, scorecards: list[dict]) -> str:
         for wk in weeks:
             w = by_week.get(wk)
             if w:
-                cls = "on" if w["status"] == "ON_TRACK" else "off"
+                rag = w.get("rag") or ("GREEN" if w["status"] == "ON_TRACK" else "RED")
+                cls = {"GREEN": "on", "YELLOW": "mid", "RED": "off"}.get(rag, "off")
                 out += f'<td class="{cls}">{w["actual_value"]}</td>'
             else:
                 out += "<td></td>"
@@ -247,10 +250,10 @@ def build_scorecard_html(tenant_name: str, scorecards: list[dict]) -> str:
       th, td {{ border:1px solid #dfe2dc; padding:5px 7px; text-align:center; }}
       thead th {{ background:#1b3a5c; color:#fff; }}
       td.kpi {{ text-align:left; font-weight:600; color:#122943; }}
-      td.on {{ background:#e7f3ec; }} td.off {{ background:#fbeae7; }}
+      td.on {{ background:#e7f3ec; }} td.mid {{ background:#fcf3d9; }} td.off {{ background:#fbeae7; }}
     </style></head><body>
       <h1>Scorecard — {_html.escape(tenant_name)}</h1>
-      <p class="sub">Weekly measurables, on-track (green) / off-track (red).</p>
+      <p class="sub">Measurables with Red / Yellow / Green status.</p>
       <table><thead><tr><th style="text-align:left">KPI</th><th>Owner</th><th>Target</th>{week_cols}</tr></thead>
       <tbody>{rows}</tbody></table>
     </body></html>"""
@@ -314,10 +317,9 @@ def _build_scorecard_pdf_fallback(tenant_name: str, scorecards: list[dict]) -> b
         for wk in weeks:
             w = by_week.get(wk)
             if w:
-                if w["status"] == "ON_TRACK":
-                    pdf.set_fill_color(231, 243, 236)
-                else:
-                    pdf.set_fill_color(251, 234, 231)
+                rag = w.get("rag") or ("GREEN" if w["status"] == "ON_TRACK" else "RED")
+                rgb = {"GREEN": (231, 243, 236), "YELLOW": (252, 243, 217), "RED": (251, 234, 231)}.get(rag, (251, 234, 231))
+                pdf.set_fill_color(*rgb)
                 pdf.cell(wk_w, 6, str(w["actual_value"]), border=1, align="C", fill=True)
             else:
                 pdf.set_fill_color(255, 255, 255)

@@ -10,6 +10,7 @@ router = APIRouter(prefix="/teams", tags=["teams"])
 class CreateTeamRequest(BaseModel):
     tenant_id: str
     name: str
+    member_ids: list[str] = []      # add these users to the team on creation
 
 
 class AddMemberRequest(BaseModel):
@@ -52,6 +53,14 @@ async def create_team(body: CreateTeamRequest, current_user: CurrentUser = Depen
             raise HTTPException(status_code=403, detail="You don't have access to that tenant")
         if row is None:
             raise HTTPException(status_code=403, detail="You don't have access to that tenant")
+        # add the initial members in the same request
+        for uid in body.member_ids:
+            if uid:
+                await conn.execute(
+                    "INSERT INTO team_members (tenant_id, team_id, user_id) VALUES ($1, $2, $3) "
+                    "ON CONFLICT (team_id, user_id) DO NOTHING",
+                    body.tenant_id, row["id"], uid,
+                )
     return dict(row)
 
 

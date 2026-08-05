@@ -49,6 +49,7 @@ function TenantNodes({ nodes, byParent, activeTenantId, onSelect }) {
 
 const ICONS = {
   scorecards: "M4 19V5m0 14h16M8 15v-4m4 4V8m4 7v-6",
+  vcbs: "M3 3v18h18M7 14l3-3 3 3 5-6",
   rocks: "M3 20h18L14 6l-4 7-2-3-5 10z",
   todos: "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
   issues: "M12 8v5m0 3h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
@@ -66,6 +67,7 @@ function NavIcon({ name }) {
 
 const MODULES = [
   { href: "/dashboard/scorecards", label: "Scorecard", icon: "scorecards" },
+  { href: "/dashboard/vcbs", label: "VCBs", icon: "vcbs" },
   { href: "/dashboard/rocks", label: "Rocks", icon: "rocks" },
   { href: "/dashboard/todos", label: "To-Dos", icon: "todos" },
   { href: "/dashboard/issues", label: "Issues", icon: "issues" },
@@ -80,6 +82,7 @@ export default function DashboardLayout({ children }) {
 
   const [wsOpen, setWsOpen] = useState(false);       // workspace dropdown open?
   const [portcoOpen, setPortcoOpen] = useState(true); // admin's "PortCos" section expanded?
+  const [navOpen, setNavOpen] = useState(false);      // mobile: off-canvas sidebar open?
   const switcherRef = useRef(null);
 
   // close the dropdown on outside click
@@ -109,7 +112,8 @@ export default function DashboardLayout({ children }) {
 
   return (
     <div className="shell">
-      <aside className="sidebar">
+      <div className={`nav-backdrop ${navOpen ? "show" : ""}`} onClick={() => setNavOpen(false)} />
+      <aside className={`sidebar ${navOpen ? "open" : ""}`}>
         <div className="sidebar-brand-row">
           <span className="brand-mark">HH</span>
           <div>
@@ -171,7 +175,7 @@ export default function DashboardLayout({ children }) {
             <button
               key={m.href}
               className={`nav-item ${pathname === m.href ? "active" : ""}`}
-              onClick={() => router.push(m.href)}
+              onClick={() => { router.push(m.href); setNavOpen(false); }}
             >
               <NavIcon name={m.icon} />
               <span>{m.label}</span>
@@ -182,7 +186,7 @@ export default function DashboardLayout({ children }) {
               <div className="nav-divider" />
               <button
                 className={`nav-item ${pathname === "/dashboard/admin" ? "active" : ""}`}
-                onClick={() => router.push("/dashboard/admin")}
+                onClick={() => { router.push("/dashboard/admin"); setNavOpen(false); }}
               >
                 <NavIcon name="admin" />
                 <span>Admin</span>
@@ -202,6 +206,9 @@ export default function DashboardLayout({ children }) {
 
       <div className="main">
         <div className="topbar">
+          <button className="nav-toggle" aria-label="Menu" onClick={() => setNavOpen((o) => !o)}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+          </button>
           <div className="topbar-context">
             <span className="ctx-label">Viewing</span>
             <strong>{activeTenant ? activeTenant.name : "Portfolio rollup"}</strong>

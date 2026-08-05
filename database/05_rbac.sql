@@ -23,7 +23,7 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    IF EXISTS (SELECT 1 FROM fund_roles fr WHERE fr.user_id = p_user) THEN
+    IF (SELECT u.is_fund_admin FROM users u WHERE u.id = p_user) THEN
         RETURN 'fund_admin';
     END IF;
 
