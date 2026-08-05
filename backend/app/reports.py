@@ -327,3 +327,76 @@ def _build_scorecard_pdf_fallback(tenant_name: str, scorecards: list[dict]) -> b
         pdf.ln()
 
     return bytes(pdf.output())
+
+
+# ------------------------------------------------------------ Org chart ------
+def build_orgchart_html(tenant_name: str, seats: list[dict]) -> str:
+    """Render the Accountability Chart as a nested HTML tree so the PDF/PNG match
+    the on-screen layout (seat card + GWC dots + responsibility bullets)."""
+    by_parent = {}
+    for s in seats:
+        by_parent.setdefault(s.get("parent_seat_id"), []).append(s)
+
+    def gwc_dot(val, letter):
+        color = "#2E7D5B" if val is True else ("#B4472E" if val is False else "#c9cdd3")
+        return f'<span class="dot" style="background:{color}" title="{letter}">{letter}</span>'
+
+    def node(s):
+        holders = s.get("holders") or []
+        who = ", ".join(h["name"] for h in holders) if holders else (s.get("holder_name") or "Vacant")
+        resp = [r.strip() for r in (s.get("responsibilities") or "").split("\n") if r.strip()][:5]
+        bullets = "".join(f"<li>{_html.escape(r)}</li>" for r in resp)
+        gwc = gwc_dot(s.get("gwc_gets"), "G") + gwc_dot(s.get("gwc_wants"), "W") + gwc_dot(s.get("gwc_capacity"), "C")
+        kids = "".join(node(c) for c in by_parent.get(s["id"], []))
+        kids_html = f'<div class="kids">{kids}</div>' if kids else ""
+        return (f'<div class="branch"><div class="seat">'
+                f'<div class="seat-top"><span class="stitle">{_html.escape(s["title"])}</span>'
+                f'<span class="gwc">{gwc}</span></div>'
+                f'<div class="who">{_html.escape(who)}</div>'
+                f'{f"<ul>{bullets}</ul>" if bullets else ""}'
+                f'</div>{kids_html}</div>')
+
+    roots = "".join(node(s) for s in by_parent.get(None, []))
+    return f"""<!doctype html><html><head><meta charset="utf-8"><style>
+      body {{ font-family:-apple-system,'Segoe UI',sans-serif; color:#1b2430; padding:24px; }}
+      h1 {{ color:#122943; font-size:20px; margin:0 0 16px; }}
+      .branch {{ margin-left:18px; border-left:1px solid #dfe2dc; padding-left:14px; }}
+      .kids {{ margin-top:4px; }}
+      .seat {{ display:inline-block; background:#fff; border:1px solid #dfe2dc; border-radius:10px;
+               padding:9px 13px; margin:5px 0; min-width:210px; box-shadow:0 1px 3px rgba(0,0,0,.05); }}
+      .seat-top {{ display:flex; justify-content:space-between; align-items:center; gap:12px; }}
+      .stitle {{ font-weight:700; color:#122943; }}
+      .who {{ font-size:12px; color:#5b6570; margin-top:2px; }}
+      ul {{ margin:6px 0 0; padding-left:16px; font-size:11px; color:#3b4653; }}
+      .gwc {{ display:inline-flex; gap:3px; }}
+      .dot {{ width:16px; height:16px; border-radius:50%; color:#fff; font-size:9px; font-weight:700;
+              display:inline-flex; align-items:center; justify-content:center; }}
+    </style></head><body>
+      <h1>Accountability Chart — {_html.escape(tenant_name)}</h1>
+      {roots or '<p style="color:#5b6570">No seats defined.</p>'}
+    </body></html>"""
+
+
+async def build_orgchart_pdf(tenant_name: str, seats: list[dict]) -> tuple[bytes, str]:
+    html = build_orgchart_html(tenant_name, seats)
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page()
+        await page.set_content(html, wait_until="load")
+        pdf = await page.pdf(format="A4", landscape=True, print_background=True,
+                             margin={"top": "10mm", "bottom": "10mm", "left": "8mm", "right": "8mm"})
+        await browser.close()
+    return pdf, "playwright"
+
+
+async def build_orgchart_png(tenant_name: str, seats: list[dict]) -> bytes:
+    html = build_orgchart_html(tenant_name, seats)
+    from playwright.async_api import async_playwright
+    async with async_playwright() as p:
+        browser = await p.chromium.launch()
+        page = await browser.new_page(viewport={"width": 1400, "height": 900})
+        await page.set_content(html, wait_until="load")
+        png = await page.screenshot(full_page=True)
+        await browser.close()
+    return png

@@ -31,7 +31,7 @@ export default function LoginPage() {
     try {
       await login(email, password);
       await reload();
-      router.push("/dashboard/scorecards");
+      router.push("/dashboard/overview");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -50,7 +50,7 @@ export default function LoginPage() {
       } else {
         await verifySmsOtp(phone, otp);
         await reload();
-        router.push("/dashboard/scorecards");
+        router.push("/dashboard/overview");
       }
     } catch (err) {
       setError(err.message);

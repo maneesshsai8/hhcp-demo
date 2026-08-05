@@ -31,7 +31,19 @@ def _client() -> PyJWKClient:
 
 
 def verify_supabase_token(token: str) -> dict:
-    """Return the verified claims, or raise a jwt exception if invalid/expired."""
+    """Return the verified claims, or raise a jwt exception if invalid/expired.
+
+    Local Supabase (CLI) signs symmetrically (HS256) with a shared JWT secret;
+    the hosted project signs asymmetrically (ES256) and publishes a JWKS. We pick
+    the path by whether SUPABASE_JWT_SECRET is configured."""
+    if config.SUPABASE_JWT_SECRET:
+        return jwt.decode(
+            token,
+            config.SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            audience="authenticated",
+            issuer=f"{config.SUPABASE_URL}/auth/v1",
+        )
     signing_key = _client().get_signing_key_from_jwt(token)
     return jwt.decode(
         token,

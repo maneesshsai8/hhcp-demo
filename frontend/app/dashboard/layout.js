@@ -55,6 +55,9 @@ const ICONS = {
   issues: "M12 8v5m0 3h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z",
   meetings: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
   accountability: "M12 3a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM5 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM19 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM12 7v4M12 11H5v4M12 11h7v4",
+  portfolio: "M3 3v18h18M18 9l-5 5-3-3-4 4",
+  vision: "M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  announcements: "M3 11l14-7v16L3 13v-2zM3 11v2a4 4 0 0 0 4 4M17 9a3 3 0 0 1 0 6",
   admin: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 8 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 3.6 8a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H8a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V8a1.65 1.65 0 0 0 1.51 1H22a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z",
 };
 function NavIcon({ name }) {
@@ -66,6 +69,9 @@ function NavIcon({ name }) {
 }
 
 const MODULES = [
+  { href: "/dashboard/overview", label: "Dashboard", icon: "portfolio" },
+  { href: "/dashboard/vision", label: "Vision", icon: "vision" },
+  { href: "/dashboard/announcements", label: "Announcements", icon: "announcements" },
   { href: "/dashboard/scorecards", label: "Scorecard", icon: "scorecards" },
   { href: "/dashboard/vcbs", label: "VCBs", icon: "vcbs" },
   { href: "/dashboard/rocks", label: "Rocks", icon: "rocks" },

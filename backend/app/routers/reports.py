@@ -24,6 +24,38 @@ async def _load(current_user, tenant_id):
     return name, data
 
 
+async def _load_orgchart(current_user, tenant_id):
+    from app.routers.seats import list_seats
+    target = tenant_id or current_user.active_tenant_id
+    if not target:
+        raise HTTPException(status_code=400, detail="Pick a specific tenant to export")
+    async with get_scoped_connection(current_user.user_id) as conn:
+        await require_permission(conn, current_user.user_id, target, "view")
+        name = await conn.fetchval("SELECT name FROM organizations WHERE id = $1", target)
+    if not name:
+        raise HTTPException(status_code=404, detail="Tenant not found or not accessible")
+    seats = await list_seats(tenant_id=target, current_user=current_user)
+    return name, seats
+
+
+@router.get("/orgchart.pdf")
+async def orgchart_pdf(tenant_id: str | None = Query(default=None), current_user: CurrentUser = Depends(get_current_user)):
+    name, seats = await _load_orgchart(current_user, tenant_id)
+    content, engine = await reports.build_orgchart_pdf(name, seats)
+    filename = f"org-chart-{name.lower().replace(' ', '-')}.pdf"
+    return Response(content=content, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"', "X-Report-Engine": engine})
+
+
+@router.get("/orgchart.png")
+async def orgchart_png(tenant_id: str | None = Query(default=None), current_user: CurrentUser = Depends(get_current_user)):
+    name, seats = await _load_orgchart(current_user, tenant_id)
+    content = await reports.build_orgchart_png(name, seats)
+    filename = f"org-chart-{name.lower().replace(' ', '-')}.png"
+    return Response(content=content, media_type="image/png",
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 @router.get("/scorecard.xlsx")
 async def scorecard_xlsx(tenant_id: str | None = Query(default=None), current_user: CurrentUser = Depends(get_current_user)):
     name, data = await _load(current_user, tenant_id)
