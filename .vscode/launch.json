@@ -1,4 +1,5 @@
 {
+    "version": "0.2.0",
     "configurations": [
         {
             "name": "Python Debugger: FastAPI",
@@ -14,6 +15,7 @@
             ],
             "cwd": "${workspaceFolder}/backend",
             "python": "${workspaceFolder}/backend/.venv/bin/python",
+            "console": "integratedTerminal",
             "jinja": true
         }
     ]
