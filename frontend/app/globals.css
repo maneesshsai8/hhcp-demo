@@ -970,3 +970,49 @@ button.gwc-dot { cursor: pointer; }
 .todo-main { display: flex; align-items: flex-start; gap: 12px; }
 .todo-check { width: 17px; height: 17px; margin-top: 3px; cursor: pointer; flex-shrink: 0; }
 .card-title.struck { text-decoration: line-through; color: var(--ink-soft); }
+
+/* ---- Meetings: summary stats, section timer, ratings trend, template builder ---- */
+.stat-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.stat-card {
+  flex: 1 1 120px; min-width: 110px;
+  background: var(--surface); border: 1px solid var(--line-soft);
+  border-radius: var(--radius); padding: 14px 16px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.stat-card .stat-num { font-family: var(--font-display); font-size: 26px; font-weight: 600; color: var(--navy-deep); white-space: nowrap; }
+.stat-card .stat-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); }
+
+/* per-section overtime timer in the runner head */
+.sec-timer {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  padding: 6px 12px; border-radius: var(--radius);
+  border: 1px solid var(--line); background: var(--surface);
+  font-variant-numeric: tabular-nums;
+}
+.sec-timer-time { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--navy-deep); }
+.sec-timer-limit { font-size: 12px; color: var(--ink-soft); }
+.sec-timer-flag { font-size: 11px; font-weight: 600; color: #b42318; margin-left: 4px; }
+.sec-timer.warn { border-color: #e0a100; background: #fff8e6; }
+.sec-timer.warn .sec-timer-time { color: #9a6b00; }
+.sec-timer.over { border-color: #f0b4ad; background: #fdeceb; animation: overpulse 1s ease-in-out infinite; }
+.sec-timer.over .sec-timer-time { color: #b42318; }
+@keyframes overpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(180,35,24,0.0); } 50% { box-shadow: 0 0 0 4px rgba(180,35,24,0.15); } }
+.card-overtime { border-color: #f0b4ad; }
+
+/* ratings trend sparkline */
+.trend-bars { display: flex; align-items: flex-end; gap: 6px; height: 90px; padding: 8px 0; }
+.trend-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 14px; }
+.trend-bar { width: 100%; max-width: 34px; background: var(--navy); border-radius: 4px 4px 0 0; transition: height .3s; }
+.trend-bar.low { background: #d98383; }
+.trend-bar.mid { background: #e0a100; }
+.trend-bar.high { background: #3f8a5f; }
+.trend-bar-val { font-size: 10px; color: var(--ink-soft); }
+
+/* custom agenda template builder rows */
+.tpl-seg-row { display: grid; grid-template-columns: 1fr 90px 130px 32px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.tpl-seg-row input, .tpl-seg-row select { padding: 7px 9px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); font-size: 13px; }
+@media (max-width: 620px) { .tpl-seg-row { grid-template-columns: 1fr 1fr; } }
+
+/* runner facilitator lifecycle controls */
+.runner-lifecycle { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.runner-lifecycle .btn-ghost { padding: 6px 12px; font-size: 13px; }

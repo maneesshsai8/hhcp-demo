@@ -1,11 +1,19 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiFetch, API_BASE } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
+import { realtime } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 
 function clock(sec) {
   const m = Math.floor(sec / 60), s = sec % 60;
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+function fmtDuration(s) {
+  if (s == null) return "—";
+  if (s < 60) return `${s} sec`;
+  const m = Math.floor(s / 60), sec = s % 60;
+  return sec ? `${m} min ${sec} sec` : `${m} min`;
 }
 const initials = (n) => (n || "?").split(" ").map((x) => x[0]).slice(0, 2).join("").toUpperCase();
 
@@ -14,7 +22,7 @@ const initials = (n) => (n || "?").split(" ").map((x) => x[0]).slice(0, 2).join(
 function SectionData({ kind, tenantId, refetchKey, onChanged }) {
   const [rows, setRows] = useState(null);
   const [newIssue, setNewIssue] = useState("");
-  const path = { scorecard: "/scorecards", rocks: "/rocks", todos: "/todos", issues: "/issues" }[kind];
+  const path = { scorecard: "/scorecards", rocks: "/rocks", todos: "/todos", issues: "/issues", vcbs: "/vcbs" }[kind];
 
   const load = useCallback(() => {
     if (!path) return;
@@ -36,6 +44,16 @@ function SectionData({ kind, tenantId, refetchKey, onChanged }) {
   if (kind === "rocks") return rows.length ? rows.map((r) => (
     <div className="run-line" key={r.id}><span>{r.title}</span><span className={`badge ${r.status || ""}`}>{(r.status || "").replace("_", " ")}</span></div>
   )) : <p className="card-meta">No Rocks.</p>;
+
+  if (kind === "vcbs") return rows.length ? rows.map((v) => (
+    <div className="run-line" key={v.id}>
+      <span>{v.title}</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span className="progress-track" style={{ width: 120 }}><span className="progress-fill" style={{ width: `${v.progress_pct}%` }} /></span>
+        <span className={`badge ${v.derived_status || ""}`}>{v.progress_pct}%</span>
+      </span>
+    </div>
+  )) : <p className="card-meta">No Value Creation Blueprints for this PortCo.</p>;
 
   if (kind === "todos") {
     async function toggle(t) {
@@ -77,6 +95,61 @@ function SectionData({ kind, tenantId, refetchKey, onChanged }) {
   return null;
 }
 
+/* ---- Post-meeting summary (shown when a meeting is completed) [AC4] ---- */
+function MeetingSummary({ meeting, router }) {
+  const s = meeting.summary || {};
+  const att = meeting.attendance || [];
+  return (
+    <div style={{ padding: 28, maxWidth: 820, margin: "0 auto" }}>
+      <div className="page-head-row">
+        <div>
+          <h1 className="page-title display" style={{ margin: 0 }}>{meeting.title}</h1>
+          <p className="page-sub">
+            Meeting summary · {fmtDuration(s.duration_seconds)}
+            {meeting.ended_at ? ` · ${new Date(meeting.ended_at).toLocaleString()}` : ""}
+            {meeting.team_name ? ` · ${meeting.team_name}` : ""}
+          </p>
+        </div>
+        <div className="head-actions"><button className="btn-ghost" onClick={() => router.push("/dashboard/meetings")}>← Back to meetings</button></div>
+      </div>
+
+      <div className="stat-row" style={{ marginBottom: 16 }}>
+        <div className="stat-card"><span className="stat-num">{s.rating != null ? s.rating : "—"}</span><span className="stat-label">Rating (1–10)</span></div>
+        <div className="stat-card"><span className="stat-num">{s.attendance ?? att.length}</span><span className="stat-label">Attended</span></div>
+        <div className="stat-card"><span className="stat-num">{(s.issues_raised || []).length}</span><span className="stat-label">Issues raised</span></div>
+        <div className="stat-card"><span className="stat-num">{s.issues_solved ?? 0}</span><span className="stat-label">Issues solved</span></div>
+        <div className="stat-card"><span className="stat-num">{(s.todos_created || []).length}</span><span className="stat-label">To-Dos created</span></div>
+      </div>
+
+      {att.length > 0 && (
+        <div className="card">
+          <p className="card-title">Attendance</p>
+          <div className="att-avatars">
+            {att.map((u) => <span key={u.id} className="att-av here" title={u.name}>{initials(u.name)}</span>)}
+          </div>
+          <p className="card-meta">{att.map((u) => u.name).join(", ")}</p>
+        </div>
+      )}
+
+      <div className="card">
+        <p className="card-title">To-Dos created this meeting</p>
+        {(s.todos_created || []).length
+          ? (s.todos_created || []).map((t, i) => <div className="run-line" key={i}><span>○ {t}</span></div>)
+          : <p className="card-meta">None.</p>}
+      </div>
+
+      <div className="card">
+        <p className="card-title">Issues raised</p>
+        {(s.issues_raised || []).length
+          ? (s.issues_raised || []).map((t, i) => <div className="run-line" key={i}><span>{t}</span></div>)
+          : <p className="card-meta">None.</p>}
+      </div>
+
+      {s.notes && <div className="card"><p className="card-title">Notes</p><p className="ann-body">{s.notes}</p></div>}
+    </div>
+  );
+}
+
 export default function MeetingRunner() {
   const { id } = useParams();
   const router = useRouter();
@@ -84,12 +157,21 @@ export default function MeetingRunner() {
   const [error, setError] = useState("");
   const [idx, setIdx] = useState(0);
   const [elapsed, setElapsed] = useState(0);
-  const [present, setPresent] = useState([]);          // live participants (WS presence)
+  const [secElapsed, setSecElapsed] = useState(0);     // time on the current section
+  const [present, setPresent] = useState([]);          // live participants (Realtime Presence)
   const [refetch, setRefetch] = useState({});          // {issues: n, todos: n, ...}
   const [rating, setRating] = useState(8);
+  const [notes, setNotes] = useState("");
   const [live, setLive] = useState(false);
+  const [overtime, setOvertime] = useState(false);
+  const [canEdit, setCanEdit] = useState(true);        // facilitator? from /live-state
   const startRef = useRef(null);
-  const wsRef = useRef(null);
+  const secStartRef = useRef(Date.now());
+  const alertedRef = useRef(false);
+  const audioRef = useRef(null);
+  const chRef = useRef(null);
+  const refetchTimer = useRef(null);
+  const { user } = useAuth();
 
   useEffect(() => {
     apiFetch(`/meetings/${id}`).then((m) => {
@@ -98,53 +180,132 @@ export default function MeetingRunner() {
     }).catch((e) => setError(e.message));
   }, [id]);
 
-  // ---- WebSocket: presence + section follow + refetch relay ----
-  useEffect(() => {
-    // The httpOnly access-token cookie is sent automatically on the WS
-    // handshake — no token in the URL anymore.
-    const wsUrl = `${API_BASE.replace(/^http/, "ws")}/ws/meetings/${id}`;
-    let ws, closed = false;
-    function connect() {
-      ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
-      ws.onopen = () => setLive(true);
-      ws.onclose = () => { setLive(false); if (!closed) setTimeout(connect, 1500); };
-      ws.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === "presence") setPresent(msg.users);
-        else if (msg.type === "section") setIdx(msg.index);
-        else if (msg.type === "refetch") setRefetch((r) => ({ ...r, [msg.what]: (r[msg.what] || 0) + 1 }));
-      };
-    }
-    connect();
-    return () => { closed = true; try { ws && ws.close(); } catch {} };
+  // Authoritative state recovery: (re)fetch /live-state and replace stale local
+  // state. Called on mount, on every confirmed Realtime event, and on reconnect.
+  const syncLiveState = useCallback(() => {
+    apiFetch(`/meetings/${id}/live-state`).then((ls) => {
+      if (typeof ls.current_section_index === "number") setIdx(ls.current_section_index);
+      setCanEdit(!!ls.permissions?.can_edit);
+      setMeeting((m) => (m ? { ...m, status: ls.status } : m));
+    }).catch(() => {});
   }, [id]);
+  const scheduleSync = useCallback(() => {
+    clearTimeout(refetchTimer.current);
+    refetchTimer.current = setTimeout(syncLiveState, 250);   // debounce bursts
+  }, [syncLiveState]);
+
+  // ---- Supabase Realtime: Presence (who's connected) + Broadcast (confirmed
+  // events published by the SERVER). Clients never broadcast authoritative
+  // state; a broadcast just tells us to refetch the RLS-guarded live-state. ----
+  useEffect(() => {
+    if (!realtime || !id || !user) return;
+    if (meeting && meeting.status === "completed") return;   // no live layer once finished
+    const me = { id: user.id, name: user.name || "User" };
+    const ch = realtime.channel(`meeting:${id}`, { config: { presence: { key: me.id } } });
+    chRef.current = ch;
+
+    ch.on("presence", { event: "sync" }, () => {
+      const state = ch.presenceState();
+      const seen = {};
+      Object.values(state).flat().forEach((p) => { if (p.id) seen[p.id] = p.name; });
+      setPresent(Object.entries(seen).map(([id2, name]) => ({ id: id2, name })));
+    });
+    ch.on("broadcast", { event: "*" }, (msg) => {
+      const ev = msg.event || "";
+      if (ev === "nudge" || ev === "segment.updated") {
+        const what = msg.payload?.what;
+        if (what) setRefetch((r) => ({ ...r, [what]: (r[what] || 0) + 1 }));
+      }
+      if (ev === "meeting.completed" || ev === "summary.generated") {
+        // meeting closed elsewhere → pull the full record (incl. summary) and show it
+        apiFetch(`/meetings/${id}`).then(setMeeting).catch(() => {});
+        return;
+      }
+      scheduleSync();   // any confirmed event → reconcile against the server
+    });
+    ch.subscribe((status) => {
+      const on = status === "SUBSCRIBED";
+      setLive(on);
+      if (on) { ch.track(me); syncLiveState(); }
+    });
+    return () => { try { realtime.removeChannel(ch); } catch {} chRef.current = null; };
+  }, [id, user, meeting?.status, scheduleSync, syncLiveState]);
 
   useEffect(() => {
     const t = setInterval(() => {
       if (startRef.current) setElapsed(Math.floor((Date.now() - startRef.current) / 1000));
+      setSecElapsed(Math.floor((Date.now() - secStartRef.current) / 1000));
     }, 1000);
     return () => clearInterval(t);
   }, []);
 
-  const send = (obj) => { try { wsRef.current?.readyState === 1 && wsRef.current.send(JSON.stringify(obj)); } catch {} };
-  const goSection = (i) => { setIdx(i); send({ type: "section", index: i }); };            // drive the room
-  const broadcastChange = (what) => send({ type: "changed", what });
+  // reset the section clock whenever the active section changes
+  useEffect(() => { secStartRef.current = Date.now(); setSecElapsed(0); setOvertime(false); alertedRef.current = false; }, [idx]);
+
+  // audible + visual alert when a section runs over its allotted minutes [AC2]
+  const sections = meeting?.sections || [];
+  const cur = sections[idx];
+  const secLimit = cur?.minutes ? cur.minutes * 60 : null;
+  useEffect(() => {
+    if (secLimit && secElapsed >= secLimit && !alertedRef.current) {
+      alertedRef.current = true;
+      setOvertime(true);
+      try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) {
+          const ctx = audioRef.current || (audioRef.current = new AC());
+          [0, 300, 600].forEach((delay) => {
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+            const t0 = ctx.currentTime + delay / 1000;
+            g.gain.setValueAtTime(0.0001, t0);
+            g.gain.exponentialRampToValueAtTime(0.25, t0 + 0.02);
+            g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+            o.start(t0); o.stop(t0 + 0.2);
+          });
+        }
+      } catch {}
+    }
+  }, [secElapsed, secLimit]);
+
+  // Facilitator advances the room: persist the segment on the server (which
+  // emits segment.changed → the worker broadcasts → everyone refetches). Local
+  // idx is set optimistically for instant feedback.
+  const goSection = (i) => {
+    setIdx(i);
+    if (canEdit) apiFetch(`/meetings/${id}/current-section`, { method: "POST", body: JSON.stringify({ index: i }) }).catch(() => {});
+  };
+  // Lightweight, non-authoritative "please refresh this list" hint to the room.
+  const broadcastChange = (what) => {
+    try { chRef.current?.send({ type: "broadcast", event: "nudge", payload: { what } }); } catch {}
+    setRefetch((r) => ({ ...r, [what]: (r[what] || 0) + 1 }));
+  };
 
   if (error) return <div style={{ padding: 28 }}><div className="error-banner">{error}</div></div>;
   if (!meeting) return <div style={{ padding: 28 }} className="loading-line">Loading meeting…</div>;
+  if (meeting.status === "completed") return <MeetingSummary meeting={meeting} router={router} />;
 
-  const sections = meeting.sections || [];
-  const cur = sections[idx];
   const roster = meeting.roster || [];
   const presentIds = new Set(present.map((p) => p.id));
 
   async function finish() {
     try {
-      await apiFetch(`/meetings/${id}/finish`, { method: "POST", body: JSON.stringify({ rating }) });
+      // persist who was present (live presence set, falling back to the full roster)
+      const attendee_ids = present.length ? present.map((p) => p.id) : roster.map((u) => u.id);
+      await apiFetch(`/meetings/${id}/finish`, { method: "POST", body: JSON.stringify({ rating, notes: notes || null, attendee_ids }) });
       router.push("/dashboard/meetings");
     } catch (e) { setError(e.message); }
   }
+  // pause / resume / cancel drive the server state machine; the worker broadcasts
+  // the transition and every client reconciles via /live-state.
+  async function lifecycle(action) {
+    try {
+      const r = await apiFetch(`/meetings/${id}/${action}`, { method: "POST", body: JSON.stringify({}) });
+      setMeeting((m) => (m ? { ...m, status: r.status } : m));
+      if (action === "cancel") router.push("/dashboard/meetings");
+    } catch (e) { setError(e.message); }
+  }
+  const paused = meeting.status === "paused";
 
   return (
     <div className="runner">
@@ -163,36 +324,60 @@ export default function MeetingRunner() {
             </button>
           ))}
         </div>
+        {canEdit && (
+          <div className="runner-lifecycle">
+            {paused
+              ? <button className="btn-ghost" onClick={() => lifecycle("resume")}>▶ Resume</button>
+              : <button className="btn-ghost" onClick={() => lifecycle("pause")}>⏸ Pause</button>}
+            <button className="link-danger" onClick={() => { if (confirm("Cancel this meeting? It won't be completed.")) lifecycle("cancel"); }}>Cancel</button>
+          </div>
+        )}
         <button className="btn-secondary runner-finish" onClick={finish}>Finish Meeting</button>
       </aside>
 
       <div className="runner-main">
+        {paused && <div className="ok-banner" style={{ background: "#fff8e6", color: "#9a6b00", borderColor: "#e0a100" }}>⏸ Meeting paused — timers are held. Resume to continue.</div>}
         <div className="runner-head">
           <h1 className="page-title display" style={{ margin: 0 }}>{cur?.label} <span className="runner-agenda">· {meeting.title}</span></h1>
-          {/* live attendance */}
-          <div className="attendance-bar">
-            <strong>{present.length} of {roster.length || present.length} present</strong>
-            <div className="att-avatars">
-              {roster.map((u) => (
-                <span key={u.id} className={`att-av ${presentIds.has(u.id) ? "here" : ""}`} title={`${u.name}${presentIds.has(u.id) ? " · present" : ""}`}>{initials(u.name)}</span>
-              ))}
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {/* per-section timer with overtime alert */}
+            {secLimit && (
+              <div className={`sec-timer ${overtime ? "over" : secElapsed >= secLimit * 0.8 ? "warn" : ""}`} title={overtime ? "Over the allotted time — wrap up" : ""}>
+                <span className="sec-timer-time">{clock(secElapsed)}</span>
+                <span className="sec-timer-limit">/ {cur.minutes}:00</span>
+                {overtime && <span className="sec-timer-flag">⏰ over time</span>}
+              </div>
+            )}
+            {/* live attendance */}
+            <div className="attendance-bar">
+              <strong>{present.length} of {roster.length || present.length} present</strong>
+              <div className="att-avatars">
+                {roster.map((u) => (
+                  <span key={u.id} className={`att-av ${presentIds.has(u.id) ? "here" : ""}`} title={`${u.name}${presentIds.has(u.id) ? " · present" : ""}`}>{initials(u.name)}</span>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
         {cur && (
-          <div className="card">
+          <div className={`card ${overtime ? "card-overtime" : ""}`}>
             <p className="run-prompt">{cur.prompt}</p>
             {cur.kind === "segue" && (
               <p className="card-meta">Everyone shares their good news. Attendance updates live above as teammates join.</p>
             )}
-            {["scorecard", "rocks", "todos", "issues"].includes(cur.kind) &&
+            {["scorecard", "rocks", "todos", "issues", "vcbs"].includes(cur.kind) &&
               <SectionData key={cur.key} kind={cur.kind} tenantId={meeting.tenant_id} refetchKey={refetch[cur.kind] || 0} onChanged={broadcastChange} />}
-            {cur.kind === "text" && <textarea className="notes-box" placeholder="Notes…" />}
+            {cur.kind === "text" && <textarea className="notes-box" placeholder="Notes…" value={notes} onChange={(e) => setNotes(e.target.value)} />}
             {cur.kind === "conclude" && (
-              <label className="fld" style={{ maxWidth: 260 }}>Rate this meeting (1–10)
-                <input type="number" min="1" max="10" step="0.5" value={rating} onChange={(e) => setRating(Number(e.target.value))} />
-              </label>
+              <>
+                <label className="fld" style={{ maxWidth: 260 }}>Rate this meeting (1–10)
+                  <input type="number" min="1" max="10" step="0.5" value={rating} onChange={(e) => setRating(Number(e.target.value))} />
+                </label>
+                <label className="fld">Closing notes / cascading messages
+                  <textarea className="notes-box" placeholder="Recap and cascading messages…" value={notes} onChange={(e) => setNotes(e.target.value)} />
+                </label>
+              </>
             )}
           </div>
         )}

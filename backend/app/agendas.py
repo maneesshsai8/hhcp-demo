@@ -6,6 +6,7 @@ the frontend runner what to show:
   rocks      -> the tenant's Rocks (live data)
   todos      -> the tenant's To-Dos (live data)
   issues     -> the tenant's Issues (IDS: Identify-Discuss-Solve)
+  vcbs       -> the tenant's Value Creation Blueprints (live rollup)
   text       -> a prompt + free notes (headlines, objectives, etc.)
   conclude   -> recap + rate the meeting 1-10
 """
@@ -22,6 +23,8 @@ AGENDAS = {
              "prompt": "Review the weekly numbers. On-track or off-track?"},
             {"key": "rock_review", "label": "Rock Review", "minutes": 5, "kind": "rocks",
              "prompt": "Each Rock: on-track or off-track? Off-track Rocks become Issues."},
+            {"key": "vcb_review", "label": "VCB Review", "minutes": 5, "kind": "vcbs",
+             "prompt": "Value Creation Blueprints — progress toward the investment thesis."},
             {"key": "headlines", "label": "Customer / Employee Headlines", "minutes": 5, "kind": "text",
              "prompt": "Share customer and employee headlines — good and bad."},
             {"key": "todos", "label": "To-Do List", "minutes": 5, "kind": "todos",

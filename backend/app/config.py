@@ -35,6 +35,7 @@ AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local").lower()
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 SUPABASE_JWKS_URL = os.getenv("SUPABASE_JWKS_URL") or (
     f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json" if SUPABASE_URL else None
 )
@@ -56,3 +57,11 @@ LUCID_EMBED_ORIGIN = os.getenv("LUCID_EMBED_ORIGIN", "http://localhost:3002")
 SMTP_HOST = os.getenv("SMTP_HOST", "127.0.0.1")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "54325"))
 SMTP_FROM = os.getenv("SMTP_FROM", "announcements@hhcp.local")
+
+# ---- Calendar providers (async, best-effort; all unset in the demo) ----
+GOOGLE_CALENDAR_CLIENT_ID = os.getenv("GOOGLE_CALENDAR_CLIENT_ID")
+GOOGLE_CALENDAR_CLIENT_SECRET = os.getenv("GOOGLE_CALENDAR_CLIENT_SECRET")
+GOOGLE_CALENDAR_REFRESH_TOKEN = os.getenv("GOOGLE_CALENDAR_REFRESH_TOKEN")
+MS_CALENDAR_CLIENT_ID = os.getenv("MS_CALENDAR_CLIENT_ID")
+MS_CALENDAR_CLIENT_SECRET = os.getenv("MS_CALENDAR_CLIENT_SECRET")
+MS_CALENDAR_REFRESH_TOKEN = os.getenv("MS_CALENDAR_REFRESH_TOKEN")

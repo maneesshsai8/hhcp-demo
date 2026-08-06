@@ -20,6 +20,19 @@ function memoryStorage() {
   };
 }
 
+// Realtime client — always created when the Supabase URL + anon key are present,
+// independent of the auth provider. The meeting runner uses PUBLIC channels
+// (broadcast + presence) so no user JWT is needed; authoritative meeting data
+// still comes from the RLS-guarded REST API, and the SERVER (outbox worker) is
+// the only publisher of confirmed events. Clients only send ephemeral presence
+// and lightweight "nudge" hints.
+export const realtime =
+  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      })
+    : null;
+
 export const supabase =
   AUTH_PROVIDER === "supabase" &&
   process.env.NEXT_PUBLIC_SUPABASE_URL &&
