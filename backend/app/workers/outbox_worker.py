@@ -30,7 +30,7 @@ import logging
 import asyncpg
 
 from app.config import DATABASE_URL
-from app import meeting_summary, realtime_broadcast
+from app import meeting_summary, realtime_broadcast, mailer, config
 
 log = logging.getLogger("meetings.outbox")
 
@@ -59,11 +59,111 @@ async def _notify(event_type: str, payload: dict):
     log.info("notify %s meeting=%s", event_type, payload.get("meetingId"))
 
 
+async def _handle_announcement(conn, event_type: str, payload: dict) -> None:
+    """Fan out a committed announcement: snapshot recipients, queue per-channel
+    deliveries, send email, and publish to Realtime — all out of the request
+    path (docs/ANNOUNCEMENTS-ARCHITECTURE.md §5/§6). Runs under the AUTHOR's RLS
+    context so every write is tenant-scoped, no superuser bypass."""
+    ann_id = payload.get("announcementId") or str(payload.get("aggregate_id"))
+    actor_id = payload.get("actorId")
+    if actor_id:
+        await conn.execute("SELECT set_config('app.current_user_id', $1, true)", actor_id)
+
+    ann = await conn.fetchrow(
+        "SELECT id, tenant_id, title, body, audience, team_id, requires_ack "
+        "FROM announcements WHERE id = $1 AND status = 'published'", ann_id)
+    if ann is None:
+        log.info("announcement %s not published/visible; skipping", ann_id)
+        return
+    tenant_id = str(ann["tenant_id"])
+
+    # For an update we only need to nudge open feeds to refetch — no re-fan-out.
+    if event_type == "announcement.updated":
+        await _broadcast_announcement(ann, event_type)
+        return
+
+    # 1. Snapshot the audience (the ack% denominator + delivery target set).
+    if ann["audience"] == "team" and ann["team_id"]:
+        await conn.execute(
+            """INSERT INTO announcement_recipients (announcement_id, user_id, tenant_id)
+               SELECT $1, tm.user_id, $2 FROM team_members tm WHERE tm.team_id = $3
+               ON CONFLICT (announcement_id, user_id) DO NOTHING""",
+            ann_id, tenant_id, ann["team_id"])
+    else:
+        await conn.execute(
+            """INSERT INTO announcement_recipients (announcement_id, user_id, tenant_id)
+               SELECT $1, m.user_id, $2 FROM tenant_memberships m WHERE m.tenant_id = $2
+               ON CONFLICT (announcement_id, user_id) DO NOTHING""",
+            ann_id, tenant_id)
+
+    # 2. In-app delivery: the row itself is the inbox item → 'sent' immediately.
+    #    The NOT EXISTS guard makes re-processing idempotent: notification_deliveries
+    #    is partitioned by created_at, so a (announcement,user,channel) unique
+    #    constraint isn't possible across partitions — guard in the query instead.
+    await conn.execute(
+        """INSERT INTO notification_deliveries (announcement_id, tenant_id, user_id, channel, status, sent_at)
+           SELECT $1, $2, r.user_id, 'in_app', 'sent', now()
+           FROM announcement_recipients r
+           WHERE r.announcement_id = $1
+             AND NOT EXISTS (SELECT 1 FROM notification_deliveries d
+                             WHERE d.announcement_id=$1 AND d.user_id=r.user_id AND d.channel='in_app')""",
+        ann_id, tenant_id)
+
+    # 3. Email delivery: queue one row per recipient who has an address, send,
+    #    then flip each to sent/failed. (push is Phase 2 — no device-token store.)
+    email_rows = await conn.fetch(
+        """INSERT INTO notification_deliveries (announcement_id, tenant_id, user_id, channel, status)
+           SELECT $1, $2, r.user_id, 'email', 'queued'
+           FROM announcement_recipients r
+           JOIN users u ON u.id = r.user_id
+           WHERE r.announcement_id = $1 AND u.email IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM notification_deliveries d
+                             WHERE d.announcement_id=$1 AND d.user_id=r.user_id AND d.channel='email')
+           RETURNING id, user_id""",
+        ann_id, tenant_id)
+    if email_rows:
+        emails = await conn.fetch(
+            "SELECT id, email FROM users WHERE id = ANY($1::uuid[])",
+            [r["user_id"] for r in email_rows])
+        addrs = [e["email"] for e in emails if e["email"]]
+        sent = mailer.send_email(
+            addrs,
+            f"[Announcement] {ann['title']}",
+            f"{ann['body'] or ''}\n\n"
+            + ("This announcement requires your acknowledgment. " if ann["requires_ack"] else "")
+            + f"Open the portal to view it: {config.LUCID_EMBED_ORIGIN}/dashboard/announcements",
+        ) if addrs else False
+        new_status = "sent" if sent else "failed"
+        await conn.execute(
+            "UPDATE notification_deliveries SET status=$2, sent_at=now(), "
+            "error=CASE WHEN $2='failed' THEN 'smtp send failed' ELSE NULL END "
+            "WHERE announcement_id=$1 AND channel='email' AND status='queued'",
+            ann_id, new_status)
+        log.info("announcement %s emailed %d recipient(s) ok=%s", ann_id, len(addrs), sent)
+
+    # 4. Nudge live feeds to refetch (best-effort).
+    await _broadcast_announcement(ann, event_type)
+
+
+async def _broadcast_announcement(ann, event_type: str) -> None:
+    envelope = {"announcementId": str(ann["id"]), "tenantId": str(ann["tenant_id"])}
+    if ann["audience"] == "team" and ann["team_id"]:
+        channel = realtime_broadcast.team_announcements_channel(str(ann["team_id"]))
+    else:
+        channel = realtime_broadcast.tenant_announcements_channel(str(ann["tenant_id"]))
+    ok = await realtime_broadcast.broadcast_to(channel, event_type, envelope)
+    log.info("realtime.publish %s channel=%s ok=%s", event_type, channel, ok)
+
+
 async def _handle(conn, row) -> None:
     """Process one claimed outbox row inside the claim transaction."""
     event_type = row["event_type"]
     payload = json.loads(row["payload"]) if isinstance(row["payload"], str) else (row["payload"] or {})
     meeting_id = payload.get("meetingId") or str(row["aggregate_id"])
+
+    if event_type.startswith("announcement."):
+        await _handle_announcement(conn, event_type, payload)
+        return
 
     if event_type == "meeting.completed":
         actor_id = payload.get("actorId")

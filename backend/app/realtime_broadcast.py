@@ -28,14 +28,29 @@ def channel_for(meeting_id: str) -> str:
     return f"meeting:{meeting_id}"
 
 
+def tenant_announcements_channel(tenant_id: str) -> str:
+    return f"tenant:{tenant_id}:announcements"
+
+
+def team_announcements_channel(team_id: str) -> str:
+    return f"team:{team_id}:announcements"
+
+
 async def broadcast(meeting_id: str, event: str, payload: dict) -> bool:
-    """Publish one event to a meeting's channel. Returns True on 2xx, else False.
-    Never raises — realtime is a best-effort transport, not a system of record."""
+    """Publish one event to a meeting's channel. Convenience wrapper around
+    broadcast_to(). Returns True on 2xx, else False. Never raises."""
+    return await broadcast_to(channel_for(meeting_id), event, payload)
+
+
+async def broadcast_to(channel: str, event: str, payload: dict) -> bool:
+    """Publish one event to an arbitrary Realtime channel. Returns True on 2xx,
+    else False. Never raises — realtime is a best-effort transport, not a system
+    of record (clients always recover via the RLS-guarded REST feed)."""
     if not (config.SUPABASE_URL and _KEY):
         log.debug("realtime not configured; skipping %s", event)
         return False
     url = f"{config.SUPABASE_URL}/realtime/v1/api/broadcast"
-    body = {"messages": [{"topic": channel_for(meeting_id), "event": event, "payload": payload}]}
+    body = {"messages": [{"topic": channel, "event": event, "payload": payload}]}
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             r = await client.post(url, json=body,

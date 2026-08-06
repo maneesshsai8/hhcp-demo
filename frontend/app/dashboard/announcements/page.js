@@ -1,13 +1,14 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { realtime } from "@/lib/supabase";
 
 const LEADERSHIP = new Set(["fund_admin", "lead_partner", "deal_qb", "portco_management"]);
 const CATEGORIES = ["general", "win", "news", "update"];
 const CAT_LABEL = { general: "General", win: "Customer win", news: "Employee news", update: "Company update" };
 const EMOJIS = ["👍", "🎉", "❤️", "👏"];
-const BLANK = { title: "", body: "", category: "general", audience: "tenant", team_id: "", pinned: false, requires_ack: false };
+const BLANK = { title: "", body: "", category: "general", audience: "tenant", team_id: "", pinned: false, requires_ack: false, priority: "normal", publish_at: "" };
 
 export default function AnnouncementsPage() {
   const { activeTenantId, activeRole, user, can } = useAuth();
@@ -23,6 +24,13 @@ export default function AnnouncementsPage() {
   const [comments, setComments] = useState([]);
   const [cDraft, setCDraft] = useState("");
   const [tracker, setTracker] = useState(null);   // {id, data}
+
+  // Refs so the realtime handler can see the currently-open thread/tracker
+  // without re-subscribing every time they change.
+  const openCommentsRef = useRef(openComments);
+  useEffect(() => { openCommentsRef.current = openComments; }, [openComments]);
+  const trackerIdRef = useRef(tracker?.id);
+  useEffect(() => { trackerIdRef.current = tracker?.id; }, [tracker]);
 
   const isLeader = !!user?.is_fund_admin || LEADERSHIP.has(activeRole);
   const canPost = isLeader || can("create");        // managers can post team-level
@@ -40,6 +48,25 @@ export default function AnnouncementsPage() {
 
   useEffect(() => { setItems(null); load(); apiFetch(`/teams${activeTenantId ? `?tenant_id=${activeTenantId}` : ""}`).then(setTeams).catch(() => {}); /* eslint-disable-next-line */ }, [activeTenantId, load]);
 
+  // Live feed: the SERVER (outbox worker) broadcasts announcement.published /
+  // .updated to the tenant channel (and per-team channels for team posts) AFTER
+  // commit. We only refetch the RLS-guarded feed on a nudge — never trust the
+  // broadcast payload as the source of truth. Same contract as the meeting runner.
+  useEffect(() => {
+    if (!realtime || !activeTenantId) return;
+    const channels = [realtime.channel(`tenant:${activeTenantId}:announcements`)];
+    teams.forEach((t) => channels.push(realtime.channel(`team:${t.id}:announcements`)));
+    const onNudge = (msg) => {
+      const aid = msg?.payload?.announcementId;
+      load();   // feed counts: comment_count, reactions, ack %, read state
+      // Refetch the open comment thread / ack tracker if this post is the one that changed.
+      if (aid && openCommentsRef.current === aid) apiFetch(`/announcements/${aid}/comments`).then(setComments).catch(() => {});
+      if (aid && trackerIdRef.current === aid) apiFetch(`/announcements/${aid}/acks`).then((data) => setTracker({ id: aid, data })).catch(() => {});
+    };
+    channels.forEach((ch) => { ch.on("broadcast", { event: "*" }, onNudge); ch.subscribe(); });
+    return () => channels.forEach((ch) => { try { realtime.removeChannel(ch); } catch {} });
+  }, [activeTenantId, teams, load]);
+
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };
 
   async function post(e) {
@@ -49,10 +76,14 @@ export default function AnnouncementsPage() {
       const r = await apiFetch("/announcements", { method: "POST", body: JSON.stringify({
         tenant_id: activeTenantId, title: f.title, body: f.body || null, category: f.category,
         audience: f.audience, team_id: f.audience === "team" ? (f.team_id || null) : null,
-        pinned: f.pinned, requires_ack: f.requires_ack,
+        pinned: f.pinned, requires_ack: f.requires_ack, priority: f.priority,
+        body_format: "plain",   // plain textarea today; switch to 'html' with a rich editor
+        publish_at: f.publish_at ? new Date(f.publish_at).toISOString() : null,
       })});
       setF(BLANK); setShow(false);
-      flash(`Posted to ${r.recipients} recipient(s)${r.email_sent ? " · email sent (view at :54324)" : ""}.`);
+      flash(r.status === "scheduled"
+        ? `Scheduled for ${new Date(r.scheduled_for).toLocaleString()} · ~${r.estimated_recipients} recipient(s).`
+        : `Posted · delivering to ~${r.estimated_recipients} recipient(s) (email viewable at :54324).`);
       load();
     } catch (e) { setError(e.message); }
   }
@@ -116,11 +147,20 @@ export default function AnnouncementsPage() {
               </label>
             )}
           </div>
+          <div className="fld-row-3">
+            <label className="fld">Priority
+              <select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value })}>
+                <option value="normal">Normal</option>
+                <option value="high">High (banner)</option>
+              </select>
+            </label>
+            <label className="fld">Schedule for later<input type="datetime-local" value={f.publish_at} onChange={(e) => setF({ ...f, publish_at: e.target.value })} /></label>
+          </div>
           <div className="gwc-edit">
             <label className="fld-check"><input type="checkbox" checked={f.pinned} onChange={(e) => setF({ ...f, pinned: e.target.checked })} /> Pin to top</label>
             <label className="fld-check"><input type="checkbox" checked={f.requires_ack} onChange={(e) => setF({ ...f, requires_ack: e.target.checked })} /> Require acknowledgment</label>
           </div>
-          <button className="btn-secondary" type="submit">Post announcement</button>
+          <button className="btn-secondary" type="submit">{f.publish_at ? "Schedule announcement" : "Post announcement"}</button>
         </form>
       )}
 
@@ -170,6 +210,7 @@ function AnnCard({ a, isLeader, me, onAck, onReact, onPin, onDel, onComments, co
         <div>
           <p className="card-title">
             {a.pinned && <span className="freq-tag">📌 pinned</span>} <span className={`cat-tag ${a.category}`}>{CAT_LABEL[a.category]}</span> {a.title}
+            {a.status === "scheduled" && <span className="ann-req">⏱ scheduled {a.publish_at ? `for ${new Date(a.publish_at).toLocaleString()}` : ""}</span>}
             {a.requires_ack && <span className="ann-req">acknowledgment required</span>}
           </p>
           {a.body && <p className="ann-body">{a.body}</p>}
