@@ -45,6 +45,13 @@ export default function TodosPage() {
     apiFetch("/vcbs").then(setVcbs).catch(() => {});
   }, [activeTenantId, load]);
 
+  // live-refresh when an item is created from the global Create drawer
+  useEffect(() => {
+    const h = () => load();
+    window.addEventListener("hhcp:item-created", h);
+    return () => window.removeEventListener("hhcp:item-created", h);
+  }, [load]);
+
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 3500); };
 
   async function createTodo(e) {

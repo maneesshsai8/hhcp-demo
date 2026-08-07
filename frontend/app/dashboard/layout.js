@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
+import CreateDrawer from "@/components/CreateDrawer";
 
 /* ------------------------------------------------------------------
    Group the flat tenant list into a parent -> children map so add-ons
@@ -68,17 +69,22 @@ function NavIcon({ name }) {
   );
 }
 
-const MODULES = [
-  { href: "/dashboard/overview", label: "Dashboard", icon: "portfolio" },
-  { href: "/dashboard/vision", label: "Vision", icon: "vision" },
-  { href: "/dashboard/announcements", label: "Announcements", icon: "announcements" },
-  { href: "/dashboard/scorecards", label: "Scorecard", icon: "scorecards" },
-  { href: "/dashboard/vcbs", label: "VCBs", icon: "vcbs" },
-  { href: "/dashboard/rocks", label: "Rocks", icon: "rocks" },
-  { href: "/dashboard/todos", label: "To-Dos", icon: "todos" },
-  { href: "/dashboard/issues", label: "Issues", icon: "issues" },
-  { href: "/dashboard/meetings", label: "Meetings", icon: "meetings" },
-  { href: "/dashboard/accountability", label: "Accountability Chart", icon: "accountability" },
+/* Grouped like ninety.io's sidebar: a home group, the data/traction tools,
+   then the vision/structure tools. Same routes — grouping is visual only. */
+const NAV_GROUPS = [
+  [{ href: "/dashboard/overview", label: "My Workspace", icon: "portfolio" }],
+  [
+    { href: "/dashboard/scorecards", label: "Scorecard", icon: "scorecards" },
+    { href: "/dashboard/rocks", label: "Rocks", icon: "rocks" },
+    { href: "/dashboard/todos", label: "To-Dos", icon: "todos" },
+    { href: "/dashboard/issues", label: "Issues", icon: "issues" },
+    { href: "/dashboard/meetings", label: "Meetings", icon: "meetings" },
+  ],
+  [
+    { href: "/dashboard/vision", label: "Vision", icon: "vision" },
+    { href: "/dashboard/announcements", label: "Announcements", icon: "announcements" },
+    { href: "/dashboard/accountability", label: "Accountability Chart", icon: "accountability" },
+  ],
 ];
 
 export default function DashboardLayout({ children }) {
@@ -89,6 +95,7 @@ export default function DashboardLayout({ children }) {
   const [wsOpen, setWsOpen] = useState(false);       // workspace dropdown open?
   const [portcoOpen, setPortcoOpen] = useState(true); // admin's "PortCos" section expanded?
   const [navOpen, setNavOpen] = useState(false);      // mobile: off-canvas sidebar open?
+  const [createOpen, setCreateOpen] = useState(false); // unified Create drawer open?
   const switcherRef = useRef(null);
 
   // close the dropdown on outside click
@@ -120,16 +127,10 @@ export default function DashboardLayout({ children }) {
     <div className="shell">
       <div className={`nav-backdrop ${navOpen ? "show" : ""}`} onClick={() => setNavOpen(false)} />
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
-        <div className="sidebar-brand-row">
-          <span className="brand-mark">HH</span>
-          <div>
-            <p className="sidebar-brand">Hidden Harbor</p>
-            <p className="sidebar-brand-sub">Operating System</p>
-          </div>
-        </div>
-
-        {/* ---------- Workspace / PortCo switcher (the ⌄ dropdown) ---------- */}
-        <div className="ws-switcher" ref={switcherRef}>
+        {/* ---------- Brand + Workspace / PortCo switcher (merged, ninety-style) ---------- */}
+        <div className="sidebar-top">
+          <span className="brand-mark" aria-label="HHCP OS">90<em>EOS</em></span>
+          <div className="ws-switcher" ref={switcherRef}>
           <button className={`ws-current ${wsOpen ? "open" : ""}`} onClick={() => setWsOpen((o) => !o)}>
             <span className="ws-current-text">
               <span className="ws-current-name">{currentLabel}</span>
@@ -173,22 +174,34 @@ export default function DashboardLayout({ children }) {
               )}
             </div>
           )}
+          </div>
         </div>
 
-        {/* ---------- Module navigation ---------- */}
+        {/* ---------- Global unified Create (ninety-style quick add) ---------- */}
+        <button className="sidebar-create" onClick={() => setCreateOpen(true)}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
+          <span>Create</span>
+        </button>
+
+        {/* ---------- Module navigation (grouped, ninety-style) ---------- */}
         <nav className="nav">
-          {MODULES.map((m) => (
-            <button
-              key={m.href}
-              className={`nav-item ${pathname === m.href ? "active" : ""}`}
-              onClick={() => { router.push(m.href); setNavOpen(false); }}
-            >
-              <NavIcon name={m.icon} />
-              <span>{m.label}</span>
-            </button>
+          {NAV_GROUPS.map((group, gi) => (
+            <div key={gi} className="nav-group">
+              {gi > 0 && <div className="nav-divider" />}
+              {group.map((m) => (
+                <button
+                  key={m.href}
+                  className={`nav-item ${pathname === m.href ? "active" : ""}`}
+                  onClick={() => { router.push(m.href); setNavOpen(false); }}
+                >
+                  <NavIcon name={m.icon} />
+                  <span>{m.label}</span>
+                </button>
+              ))}
+            </div>
           ))}
           {user.is_fund_admin && (
-            <>
+            <div className="nav-group">
               <div className="nav-divider" />
               <button
                 className={`nav-item ${pathname === "/dashboard/admin" ? "active" : ""}`}
@@ -197,7 +210,7 @@ export default function DashboardLayout({ children }) {
                 <NavIcon name="admin" />
                 <span>Admin</span>
               </button>
-            </>
+            </div>
           )}
         </nav>
 
@@ -223,6 +236,8 @@ export default function DashboardLayout({ children }) {
         </div>
         <div className="content">{children}</div>
       </div>
+
+      <CreateDrawer open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 }

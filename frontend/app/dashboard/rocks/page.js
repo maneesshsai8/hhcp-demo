@@ -4,8 +4,18 @@ import { apiFetch, apiDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
 import MultiSelect from "@/components/MultiSelect";
+import VcbsPage from "@/app/dashboard/vcbs/page";
 
 const EMPTY = { title: "", due_date: "", status: "on_track", team_id: "", assignee_ids: [], description: "", workstream_id: "" };
+
+const STATUS_META = {
+  on_track: { label: "On-track", cls: "on" },
+  off_track: { label: "Off-track", cls: "off" },
+  complete: { label: "Complete", cls: "done" },
+};
+const initials = (n) => (n || "?").split(" ").filter(Boolean).map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+const progressFor = (s) => (s === "complete" ? 100 : s === "on_track" ? 60 : 20);
+const ROCK_TABS = [["list", "List"], ["board", "Planning Board"], ["blueprints", "Blueprints"], ["archive", "Archive"]];
 
 export default function RocksPage() {
   const { activeTenantId, can } = useAuth();
@@ -17,6 +27,10 @@ export default function RocksPage() {
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(EMPTY);
+  const [tab, setTab] = useState("list");         // list | board | blueprints | archive
+  const [q, setQ] = useState("");
+  const [statusF, setStatusF] = useState("all");
+  const [ownerF, setOwnerF] = useState("all");
 
   function load() {
     apiFetch("/rocks").then(setRocks).catch((e) => setError(e.message));
@@ -25,6 +39,13 @@ export default function RocksPage() {
     apiFetch("/vcbs").then(setVcbs).catch(() => {});
   }
   useEffect(() => { setRocks(null); load(); /* eslint-disable-next-line */ }, [activeTenantId]);
+  // live-refresh when an item is created from the global Create drawer
+  useEffect(() => {
+    const h = () => load();
+    window.addEventListener("hhcp:item-created", h);
+    return () => window.removeEventListener("hhcp:item-created", h);
+    /* eslint-disable-next-line */
+  }, [activeTenantId]);
 
   const wsOptions = vcbs.flatMap((v) => v.workstreams.map((w) => ({ id: w.id, label: `${v.title} › ${w.name}` })));
 
@@ -64,58 +85,124 @@ export default function RocksPage() {
     try { await apiFetch(`/rocks/${id}`, { method: "DELETE" }); load(); } catch (e) { setError(e.message); }
   }
 
+  const list = rocks || [];
+  const ownerNames = Array.from(new Set(list.map((r) => r.owner_name).filter(Boolean)));
+  const matches = (r) =>
+    (statusF === "all" || r.status === statusF) &&
+    (ownerF === "all" || r.owner_name === ownerF) &&
+    (!q.trim() || String(r.title).toLowerCase().includes(q.trim().toLowerCase()));
+  const filtered = list.filter(matches);
+  // List view: group by owner (unowned → "Company Rocks", shown first)
+  const groups = {};
+  filtered.forEach((r) => { const k = r.owner_name || "Company Rocks"; (groups[k] = groups[k] || []).push(r); });
+  const groupKeys = Object.keys(groups).sort((a, b) => (a === "Company Rocks" ? -1 : b === "Company Rocks" ? 1 : a.localeCompare(b)));
+  const archived = filtered.filter((r) => r.status === "complete");
+
+  const rowProps = { canDelete: can("delete"), setStatus, delRock };
+
   return (
-    <div>
-      <div className="page-head-row">
+    <div className="mod-page">
+      <div className="mod-head">
         <div>
-          <h1 className="page-title display">Rocks</h1>
-          <p className="page-sub">Set and track this tenant&rsquo;s priorities.</p>
+          <h1 className="mod-title">Rocks</h1>
+          <p className="mod-sub">Set and track quarterly goals to help your team consistently hit their targets.</p>
         </div>
-        <div className="head-actions">
-          {activeTenantId && rocks && rocks.length > 0 && (
+        <div className="mod-head-actions">
+          {activeTenantId && list.length > 0 && (
             <>
-              <button className="btn-ghost" onClick={() => apiDownload(`/reports/rocks.xlsx?tenant_id=${activeTenantId}`, "rocks.xlsx").catch((e) => setError(e.message))}>Export Excel</button>
-              <button className="btn-ghost" onClick={() => apiDownload(`/reports/rocks.pdf?tenant_id=${activeTenantId}`, "rocks.pdf").catch((e) => setError(e.message))}>Export PDF</button>
+              <button className="mod-ghost" onClick={() => apiDownload(`/reports/rocks.xlsx?tenant_id=${activeTenantId}`, "rocks.xlsx").catch((e) => setError(e.message))}>Export Excel</button>
+              <button className="mod-ghost" onClick={() => apiDownload(`/reports/rocks.pdf?tenant_id=${activeTenantId}`, "rocks.pdf").catch((e) => setError(e.message))}>Export PDF</button>
             </>
           )}
-          {activeTenantId && can("create") && <button className="btn-secondary" onClick={openModal}>+ Create Rock</button>}
+          {activeTenantId && can("create") && <button className="mod-create" onClick={openModal}>+ Create Rock</button>}
         </div>
+      </div>
+
+      <div className="mod-tabs">
+        {ROCK_TABS.map(([k, l]) => (
+          <button key={k} className={tab === k ? "active" : ""} onClick={() => setTab(k)}>{l}</button>
+        ))}
       </div>
 
       {error && <div className="error-banner">{error}</div>}
 
-      {!rocks && !error && <p className="loading-line">Loading rocks…</p>}
-      {rocks && rocks.length === 0 && (
-        <div className="empty-state"><p className="display">No Rocks set yet</p><p>Create this tenant&rsquo;s top priorities.</p></div>
-      )}
-
-      {rocks && rocks.map((r) => {
-        const owners = (r.assignees && r.assignees.length) ? r.assignees.map((a) => a.name).join(", ") : (r.owner_name || "Unassigned");
-        return (
-          <div className="card" key={r.id}>
-            <div className="card-row">
-              <div>
-                <p className="card-title">{r.title} {r.workstream_name && <span className="freq-tag" title={`${r.vcb_title} › ${r.workstream_name}`}>↑ {r.vcb_title}</span>}</p>
-                {r.description && <p className="card-meta">{r.description}</p>}
-                <p className="card-meta">
-                  {r.assignees && r.assignees.length > 1 ? "Owners" : "Owner"}: {owners}
-                  {r.team_name ? ` · Team: ${r.team_name}` : ""}
-                  {r.workstream_name ? ` · ${r.workstream_name}` : ""}
-                  {r.due_date ? ` · Due ${r.due_date}` : ""}
-                </p>
-              </div>
-              <div className="card-controls">
-                <select className="status-select" value={r.status} onChange={(e) => setStatus(r.id, e.target.value)}>
-                  <option value="on_track">on track</option>
-                  <option value="off_track">off track</option>
-                  <option value="complete">complete</option>
-                </select>
-                {can("delete") && <button className="link-danger" onClick={() => delRock(r.id)}>Delete</button>}
-              </div>
-            </div>
+      {tab === "blueprints" ? (
+        <div className="mod-embed"><VcbsPage /></div>
+      ) : (
+        <>
+          <div className="mod-toolbar">
+            <select className="mod-filter" value={ownerF} onChange={(e) => setOwnerF(e.target.value)}>
+              <option value="all">Owner: All</option>
+              {ownerNames.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <select className="mod-filter" value={statusF} onChange={(e) => setStatusF(e.target.value)}>
+              <option value="all">Status: All</option>
+              <option value="on_track">On-track</option>
+              <option value="off_track">Off-track</option>
+              <option value="complete">Complete</option>
+            </select>
+            <label className="mod-search"><span>⌕</span><input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search Rocks…" /></label>
           </div>
-        );
-      })}
+
+          {!rocks && !error && <p className="loading-line">Loading rocks…</p>}
+          {rocks && list.length === 0 && (
+            <div className="empty-state"><p className="display">No Rocks set yet</p><p>Create this tenant&rsquo;s top priorities.</p></div>
+          )}
+
+          {tab === "list" && rocks && list.length > 0 && (
+            <div className="rock-groups">
+              {groupKeys.map((k) => (
+                <div className="rock-group" key={k}>
+                  <div className="rock-group-head">
+                    <span className="owner-bubble lg">{k === "Company Rocks" ? "★" : initials(k)}</span>
+                    <h3>{k}</h3><span className="rock-count">{groups[k].length}</span>
+                  </div>
+                  <div className="rock-table">
+                    <div className="rock-thead"><span>Status</span><span>Title</span><span>Milestone progress</span><span>Owner</span><span>Due by</span><span></span></div>
+                    {groups[k].map((r) => <RockRow key={r.id} r={r} {...rowProps} />)}
+                  </div>
+                </div>
+              ))}
+              {filtered.length === 0 && <div className="empty-state"><p>No Rocks match these filters.</p></div>}
+            </div>
+          )}
+
+          {tab === "board" && rocks && (
+            <div className="rock-board">
+              {["on_track", "off_track", "complete"].map((s) => {
+                const col = filtered.filter((r) => r.status === s);
+                return (
+                  <div className="rock-col" key={s}>
+                    <div className="rock-col-head"><span className={`rock-dot ${STATUS_META[s].cls}`} />{STATUS_META[s].label}<span className="rock-count">{col.length}</span></div>
+                    {col.map((r) => (
+                      <div className="rock-card" key={r.id}>
+                        <p className="rock-card-title">{r.title}</p>
+                        {r.workstream_name && <span className="rock-vcb" title={`${r.vcb_title} › ${r.workstream_name}`}>↑ {r.vcb_title}</span>}
+                        <div className="rock-card-foot">
+                          <span className="owner-bubble" title={r.owner_name || "Unassigned"}>{initials(r.owner_name)}</span>
+                          <span className="rock-card-due">{r.due_date || "—"}</span>
+                        </div>
+                      </div>
+                    ))}
+                    {col.length === 0 && <p className="rock-col-empty">No Rocks</p>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {tab === "archive" && rocks && (
+            <div className="rock-group">
+              <div className="rock-group-head"><h3>Completed Rocks</h3><span className="rock-count">{archived.length}</span></div>
+              <div className="rock-table">
+                <div className="rock-thead"><span>Status</span><span>Title</span><span>Milestone progress</span><span>Owner</span><span>Due by</span><span></span></div>
+                {archived.map((r) => <RockRow key={r.id} r={r} {...rowProps} />)}
+              </div>
+              {archived.length === 0 && <div className="empty-state"><p>No completed Rocks yet.</p></div>}
+            </div>
+          )}
+        </>
+      )}
 
       <Modal open={open} onClose={() => setOpen(false)} accent="Rock" onSubmit={createRock} submitDisabled={!f.title.trim()}>
         <label className="fld">Title<input value={f.title} autoFocus onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Add a title for the Rock…" /></label>
@@ -156,6 +243,32 @@ export default function RocksPage() {
           <textarea value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} placeholder="Add a description…" />
         </label>
       </Modal>
+    </div>
+  );
+}
+
+function RockRow({ r, canDelete, setStatus, delRock }) {
+  const sm = STATUS_META[r.status] || STATUS_META.on_track;
+  return (
+    <div className="rock-row">
+      <div className="rock-cell">
+        <select className={`rock-pill ${sm.cls}`} value={r.status} onChange={(e) => setStatus(r.id, e.target.value)}>
+          <option value="on_track">On-track</option>
+          <option value="off_track">Off-track</option>
+          <option value="complete">Complete</option>
+        </select>
+      </div>
+      <div className="rock-cell rock-title-cell">
+        <span className="rock-title">{r.title}</span>
+        {r.workstream_name && <span className="rock-vcb" title={`${r.vcb_title} › ${r.workstream_name}`}>↑ {r.vcb_title}</span>}
+        {r.description && <span className="rock-desc">{r.description}</span>}
+      </div>
+      <div className="rock-cell">
+        <div className="rock-progress-track" title={sm.label}><span style={{ width: `${progressFor(r.status)}%` }} /></div>
+      </div>
+      <div className="rock-cell"><span className="owner-bubble" title={r.owner_name || "Unassigned"}>{initials(r.owner_name)}</span></div>
+      <div className="rock-cell rock-due">{r.due_date || "—"}</div>
+      <div className="rock-cell rock-row-actions">{canDelete && <button title="Delete" onClick={() => delRock(r.id)}>🗑</button>}</div>
     </div>
   );
 }

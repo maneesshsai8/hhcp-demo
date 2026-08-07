@@ -1,3 +1,7 @@
+import "@fontsource/rubik/400.css";
+import "@fontsource/rubik/500.css";
+import "@fontsource/rubik/600.css";
+import "@fontsource/rubik/700.css";
 import "@fontsource/fraunces/500.css";
 import "@fontsource/fraunces/600.css";
 import "@fontsource/ibm-plex-sans/400.css";

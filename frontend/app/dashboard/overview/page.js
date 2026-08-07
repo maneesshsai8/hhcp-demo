@@ -43,8 +43,8 @@ export default function DashboardPage() {
     <div>
       <div className="page-head-row">
         <div>
-          <h1 className="page-title display">Dashboard</h1>
-          <p className="page-sub">{scopeLabel} overview — aggregated live across the Fund → PortCo → Add-on hierarchy.</p>
+          <h1 className="page-title display">My Workspace</h1>
+          <p className="page-sub">{scopeLabel} operating view across Rocks, To-Dos, Issues, KPIs, and value creation work.</p>
         </div>
         <div className="head-actions">
           <button className="btn-secondary" onClick={load} disabled={busy}>{busy ? "Running…" : "↻ Refresh"}</button>
