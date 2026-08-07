@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, RealtimeClient } from "@supabase/supabase-js";
 
 // Flip NEXT_PUBLIC_AUTH_PROVIDER=supabase in frontend/.env.local to use Supabase
 // Auth for login. Default stays 'local' so the existing demo keeps working.
@@ -20,17 +20,23 @@ function memoryStorage() {
   };
 }
 
-// Realtime client — always created when the Supabase URL + anon key are present,
-// independent of the auth provider. The meeting runner uses PUBLIC channels
-// (broadcast + presence) so no user JWT is needed; authoritative meeting data
-// still comes from the RLS-guarded REST API, and the SERVER (outbox worker) is
-// the only publisher of confirmed events. Clients only send ephemeral presence
-// and lightweight "nudge" hints.
+// Realtime client for PRIVATE, tenant-scoped channels.
+//
+// IMPORTANT: this is a BARE RealtimeClient, not `createClient(...).realtime`.
+// A full supabase-js client wires GoTrue auth into realtime and re-applies its
+// own token (here: the anon key, since this client has no session) on every
+// socket (re)connect — which silently clobbers our minted token and drops the
+// connection back to `anon`, failing the private-channel RLS check on the next
+// reconnect (network blip / tab switch / HMR). A bare RealtimeClient has no such
+// wiring: the token we set via authorizeRealtime() (see lib/realtime.js) sticks
+// across reconnects. The server (outbox worker) is still the only publisher of
+// authoritative events; clients only send presence + lightweight nudges.
 export const realtime =
   process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
-      })
+    ? new RealtimeClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL.replace(/^http/, "ws") + "/realtime/v1",
+        { params: { apikey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY } },
+      )
     : null;
 
 export const supabase =

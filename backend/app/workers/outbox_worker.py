@@ -44,13 +44,15 @@ def _backoff_seconds(attempt: int) -> int:
 
 
 async def _publish_realtime(event_type: str, payload: dict):
-    """Publish a confirmed event to the meeting's Supabase Realtime channel.
-    Best-effort: a failed publish never fails the outbox row (clients recover
-    via /live-state)."""
+    """Publish a confirmed event to the meeting's tenant-scoped PRIVATE Realtime
+    channel. Best-effort: a failed publish never fails the outbox row (clients
+    recover via /live-state)."""
     meeting_id = payload.get("meetingId")
-    if not meeting_id:
+    tenant_id = payload.get("tenantId")
+    if not (meeting_id and tenant_id):
+        # tenant is required to build the private channel name; skip if absent
         return
-    ok = await realtime_broadcast.broadcast(meeting_id, event_type, payload)
+    ok = await realtime_broadcast.broadcast(tenant_id, meeting_id, event_type, payload)
     log.info("realtime.publish %s meeting=%s ok=%s", event_type, meeting_id, ok)
 
 

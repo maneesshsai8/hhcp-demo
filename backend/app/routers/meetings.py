@@ -317,7 +317,7 @@ async def pause_meeting(meeting_id: str, body: LifecycleRequest | None = None,
             "UPDATE meetings SET status='paused', paused_at=now(), version=version+1, updated_at=now() WHERE id=$1 RETURNING version",
             meeting_id)
         await outbox.emit(conn, "meeting.paused", aggregate_id=meeting_id, tenant_id=str(tenant_id),
-                          payload={"meetingId": meeting_id})
+                          payload={"meetingId": meeting_id, "tenantId": str(tenant_id)})
     return {"id": meeting_id, "status": "paused", "version": row["version"]}
 
 
@@ -337,7 +337,7 @@ async def resume_meeting(meeting_id: str, body: LifecycleRequest | None = None,
                    paused_at = NULL, version = version + 1, updated_at = now()
                WHERE id = $1 RETURNING version, accumulated_paused_seconds""", meeting_id)
         await outbox.emit(conn, "meeting.resumed", aggregate_id=meeting_id, tenant_id=str(tenant_id),
-                          payload={"meetingId": meeting_id})
+                          payload={"meetingId": meeting_id, "tenantId": str(tenant_id)})
     return {"id": meeting_id, "status": "in_progress", "version": row["version"],
             "accumulated_paused_seconds": row["accumulated_paused_seconds"]}
 
@@ -354,7 +354,7 @@ async def cancel_meeting(meeting_id: str, body: LifecycleRequest | None = None,
             "UPDATE meetings SET status='cancelled', version=version+1, updated_at=now() WHERE id=$1 RETURNING version",
             meeting_id)
         await outbox.emit(conn, "meeting.cancelled", aggregate_id=meeting_id, tenant_id=str(tenant_id),
-                          payload={"meetingId": meeting_id, "reason": (body.reason if body else None)})
+                          payload={"meetingId": meeting_id, "tenantId": str(tenant_id), "reason": (body.reason if body else None)})
         await audit.log(conn, current_user.user_id, "meeting.cancelled", entity_type="meeting",
                         entity_id=meeting_id, tenant_id=str(tenant_id), detail=m["title"])
     return {"id": meeting_id, "status": "cancelled", "version": row["version"]}
@@ -373,7 +373,7 @@ async def set_current_section(meeting_id: str, body: SectionRequest,
             "UPDATE meetings SET current_section_index=$2, version=version+1, updated_at=now() WHERE id=$1 RETURNING version",
             meeting_id, body.index)
         await outbox.emit(conn, "segment.changed", aggregate_id=meeting_id, tenant_id=str(tenant_id),
-                          payload={"meetingId": meeting_id, "index": body.index, "version": row["version"]})
+                          payload={"meetingId": meeting_id, "tenantId": str(tenant_id), "index": body.index, "version": row["version"]})
     return {"id": meeting_id, "current_section_index": body.index, "version": row["version"]}
 
 
@@ -661,7 +661,7 @@ async def _item_action(meeting_id: str, item_id: str, action: str, body, current
             f"started_at, paused_at, completed_at, accumulated_paused_seconds, notes, version",
             item_id, meeting_id, target)
         await outbox.emit(conn, "segment.updated", aggregate_id=meeting_id, tenant_id=str(item_tenant),
-                          payload={"meetingId": meeting_id, "itemId": item_id, "action": action, "status": target})
+                          payload={"meetingId": meeting_id, "tenantId": str(item_tenant), "itemId": item_id, "action": action, "status": target})
     return _item_dto(row)
 
 
@@ -695,7 +695,7 @@ async def reorder_agenda_items(meeting_id: str, body: dict, current_user: Curren
             "UPDATE meetings SET agenda_version=agenda_version+1, version=version+1, updated_at=now() WHERE id=$1 RETURNING agenda_version",
             meeting_id)
         await outbox.emit(conn, "agenda.reordered", aggregate_id=meeting_id, tenant_id=str(tenant_id),
-                          payload={"meetingId": meeting_id, "order": ordered})
+                          payload={"meetingId": meeting_id, "tenantId": str(tenant_id), "order": ordered})
     return {"meeting_id": meeting_id, "agenda_version": row["agenda_version"], "order": ordered}
 
 

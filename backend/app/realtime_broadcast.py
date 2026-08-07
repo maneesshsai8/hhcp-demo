@@ -1,15 +1,16 @@
 """
 Server-authoritative Supabase Realtime Broadcast.
 
-Confirmed (committed) meeting events are published to the private-ish channel
-`meeting:<id>` by POSTing to Supabase Realtime's broadcast REST endpoint with the
-service-role key. Clients NEVER broadcast authoritative state — they subscribe,
-receive the lightweight event envelope, and refetch /live-state (the RLS-guarded
-source of truth). This is called from the outbox worker, i.e. strictly AFTER the
-domain transaction commits.
+Confirmed (committed) events are published to PRIVATE, tenant-namespaced channels
+(`tenant:<tenant_id>:…`) via Supabase Realtime's broadcast REST endpoint using the
+service-role key (which bypasses Realtime RLS, so the server can always publish).
+Subscribers only receive if their minted Realtime token's `app_tenants` claim
+covers the channel's tenant — see database/realtime_authorization.sql. Clients
+NEVER broadcast authoritative state; they receive a lightweight envelope and
+refetch the RLS-guarded REST feed. Published from the outbox worker / after commit.
 
-Delivery is best-effort by design: if Realtime is down the committed DB state is
-untouched and clients still recover via REST. So broadcast() never raises.
+Delivery is best-effort: if Realtime is down the committed DB state is untouched
+and clients recover via REST. So nothing here ever raises.
 """
 import logging
 
@@ -24,22 +25,23 @@ log = logging.getLogger("meetings.realtime")
 _KEY = config.SUPABASE_SERVICE_ROLE_KEY or config.SUPABASE_ANON_KEY
 
 
-def channel_for(meeting_id: str) -> str:
-    return f"meeting:{meeting_id}"
+# Every channel is namespaced `tenant:<tenant_id>:…` so the Realtime RLS policy
+# can parse the tenant (split_part(topic,':',2)) and match it to the token claim.
+def channel_for(tenant_id: str, meeting_id: str) -> str:
+    return f"tenant:{tenant_id}:meeting:{meeting_id}"
 
 
 def tenant_announcements_channel(tenant_id: str) -> str:
     return f"tenant:{tenant_id}:announcements"
 
 
-def team_announcements_channel(team_id: str) -> str:
-    return f"team:{team_id}:announcements"
+def team_announcements_channel(tenant_id: str, team_id: str) -> str:
+    return f"tenant:{tenant_id}:team:{team_id}:announcements"
 
 
-async def broadcast(meeting_id: str, event: str, payload: dict) -> bool:
-    """Publish one event to a meeting's channel. Convenience wrapper around
-    broadcast_to(). Returns True on 2xx, else False. Never raises."""
-    return await broadcast_to(channel_for(meeting_id), event, payload)
+async def broadcast(tenant_id: str, meeting_id: str, event: str, payload: dict) -> bool:
+    """Publish one event to a meeting's tenant-scoped private channel."""
+    return await broadcast_to(channel_for(tenant_id, meeting_id), event, payload)
 
 
 async def broadcast_to(channel: str, event: str, payload: dict) -> bool:
@@ -50,7 +52,8 @@ async def broadcast_to(channel: str, event: str, payload: dict) -> bool:
         log.debug("realtime not configured; skipping %s", event)
         return False
     url = f"{config.SUPABASE_URL}/realtime/v1/api/broadcast"
-    body = {"messages": [{"topic": channel, "event": event, "payload": payload}]}
+    # private:true routes to the RLS-guarded private channel
+    body = {"messages": [{"topic": channel, "event": event, "payload": payload, "private": True}]}
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             r = await client.post(url, json=body,

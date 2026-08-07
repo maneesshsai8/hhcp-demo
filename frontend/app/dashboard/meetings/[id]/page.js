@@ -3,6 +3,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiFetch } from "@/lib/api";
 import { realtime } from "@/lib/supabase";
+import { authorizeRealtime, meetingChannel } from "@/lib/realtime";
 import { useAuth } from "@/lib/auth-context";
 
 function clock(sec) {
@@ -197,39 +198,48 @@ export default function MeetingRunner() {
   // ---- Supabase Realtime: Presence (who's connected) + Broadcast (confirmed
   // events published by the SERVER). Clients never broadcast authoritative
   // state; a broadcast just tells us to refetch the RLS-guarded live-state. ----
+  const tenantId = meeting?.tenant_id;
   useEffect(() => {
-    if (!realtime || !id || !user) return;
+    if (!realtime || !id || !user || !tenantId) return;
     if (meeting && meeting.status === "completed") return;   // no live layer once finished
     const me = { id: user.id, name: user.name || "User" };
-    const ch = realtime.channel(`meeting:${id}`, { config: { presence: { key: me.id } } });
-    chRef.current = ch;
+    let ch, cancelled = false;
 
-    ch.on("presence", { event: "sync" }, () => {
-      const state = ch.presenceState();
-      const seen = {};
-      Object.values(state).flat().forEach((p) => { if (p.id) seen[p.id] = p.name; });
-      setPresent(Object.entries(seen).map(([id2, name]) => ({ id: id2, name })));
-    });
-    ch.on("broadcast", { event: "*" }, (msg) => {
-      const ev = msg.event || "";
-      if (ev === "nudge" || ev === "segment.updated") {
-        const what = msg.payload?.what;
-        if (what) setRefetch((r) => ({ ...r, [what]: (r[what] || 0) + 1 }));
-      }
-      if (ev === "meeting.completed" || ev === "summary.generated") {
-        // meeting closed elsewhere → pull the full record (incl. summary) and show it
-        apiFetch(`/meetings/${id}`).then(setMeeting).catch(() => {});
-        return;
-      }
-      scheduleSync();   // any confirmed event → reconcile against the server
-    });
-    ch.subscribe((status) => {
-      const on = status === "SUBSCRIBED";
-      setLive(on);
-      if (on) { ch.track(me); syncLiveState(); }
-    });
-    return () => { try { realtime.removeChannel(ch); } catch {} chRef.current = null; };
-  }, [id, user, meeting?.status, scheduleSync, syncLiveState]);
+    (async () => {
+      await authorizeRealtime();                               // mint + apply the tenant-scoped token
+      if (cancelled) return;
+      ch = realtime.channel(meetingChannel(tenantId, id), { config: { private: true, presence: { key: me.id } } });
+      chRef.current = ch;
+
+      ch.on("presence", { event: "sync" }, () => {
+        const state = ch.presenceState();
+        const seen = {};
+        Object.values(state).flat().forEach((p) => { if (p.id) seen[p.id] = p.name; });
+        setPresent(Object.entries(seen).map(([id2, name]) => ({ id: id2, name })));
+      });
+      ch.on("broadcast", { event: "*" }, (msg) => {
+        const ev = msg.event || "";
+        if (ev === "nudge" || ev === "segment.updated") {
+          const what = msg.payload?.what;
+          if (what) setRefetch((r) => ({ ...r, [what]: (r[what] || 0) + 1 }));
+        }
+        if (ev === "meeting.completed" || ev === "summary.generated") {
+          apiFetch(`/meetings/${id}`).then(setMeeting).catch(() => {});
+          return;
+        }
+        scheduleSync();   // any confirmed event → reconcile against the server
+      });
+      ch.subscribe((status) => {
+        const on = status === "SUBSCRIBED";
+        setLive(on);
+        if (on) { ch.track(me); syncLiveState(); }
+        // token expired / not yet authorized → re-mint; supabase rejoins with it
+        else if (status === "CHANNEL_ERROR") authorizeRealtime(true);
+      });
+    })();
+
+    return () => { cancelled = true; try { if (ch) realtime.removeChannel(ch); } catch {} chRef.current = null; };
+  }, [id, user, tenantId, meeting?.status, scheduleSync, syncLiveState]);
 
   useEffect(() => {
     const t = setInterval(() => {

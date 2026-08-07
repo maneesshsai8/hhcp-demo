@@ -36,6 +36,11 @@ AUTH_PROVIDER = os.getenv("AUTH_PROVIDER", "local").lower()
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+# Secret used ONLY to MINT short-lived Realtime tokens (claims-scoped private
+# channels). Kept separate from SUPABASE_JWT_SECRET on purpose: setting that one
+# would flip verify_supabase_token() onto the HS256 path and break login (local
+# user tokens are ES256/JWKS). This one just signs the realtime token we mint.
+SUPABASE_REALTIME_SIGNING_SECRET = os.getenv("SUPABASE_REALTIME_SIGNING_SECRET")
 SUPABASE_JWKS_URL = os.getenv("SUPABASE_JWKS_URL") or (
     f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json" if SUPABASE_URL else None
 )

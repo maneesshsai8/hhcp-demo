@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { realtime } from "@/lib/supabase";
+import { authorizeRealtime, tenantAnnouncementsChannel, teamAnnouncementsChannel } from "@/lib/realtime";
 
 const LEADERSHIP = new Set(["fund_admin", "lead_partner", "deal_qb", "portco_management"]);
 const CATEGORIES = ["general", "win", "news", "update"];
@@ -54,8 +55,7 @@ export default function AnnouncementsPage() {
   // broadcast payload as the source of truth. Same contract as the meeting runner.
   useEffect(() => {
     if (!realtime || !activeTenantId) return;
-    const channels = [realtime.channel(`tenant:${activeTenantId}:announcements`)];
-    teams.forEach((t) => channels.push(realtime.channel(`team:${t.id}:announcements`)));
+    let channels = [], cancelled = false;
     const onNudge = (msg) => {
       const aid = msg?.payload?.announcementId;
       load();   // feed counts: comment_count, reactions, ack %, read state
@@ -63,8 +63,17 @@ export default function AnnouncementsPage() {
       if (aid && openCommentsRef.current === aid) apiFetch(`/announcements/${aid}/comments`).then(setComments).catch(() => {});
       if (aid && trackerIdRef.current === aid) apiFetch(`/announcements/${aid}/acks`).then((data) => setTracker({ id: aid, data })).catch(() => {});
     };
-    channels.forEach((ch) => { ch.on("broadcast", { event: "*" }, onNudge); ch.subscribe(); });
-    return () => channels.forEach((ch) => { try { realtime.removeChannel(ch); } catch {} });
+    (async () => {
+      await authorizeRealtime();     // tenant-scoped token → private channels
+      if (cancelled) return;
+      channels = [realtime.channel(tenantAnnouncementsChannel(activeTenantId), { config: { private: true } })];
+      teams.forEach((t) => channels.push(realtime.channel(teamAnnouncementsChannel(activeTenantId, t.id), { config: { private: true } })));
+      channels.forEach((ch) => {
+        ch.on("broadcast", { event: "*" }, onNudge)
+          .subscribe((status) => { if (status === "CHANNEL_ERROR") authorizeRealtime(true); });
+      });
+    })();
+    return () => { cancelled = true; channels.forEach((ch) => { try { realtime.removeChannel(ch); } catch {} }); };
   }, [activeTenantId, teams, load]);
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 4000); };

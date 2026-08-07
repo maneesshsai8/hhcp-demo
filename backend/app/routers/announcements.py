@@ -18,7 +18,7 @@ async def _broadcast_nudge(tenant_id, audience, team_id, event, ann_id):
     raises (realtime_broadcast is a best-effort transport). Same principle as the
     meeting runner — the client never publishes authoritative state itself."""
     if audience == "team" and team_id:
-        ch = realtime_broadcast.team_announcements_channel(str(team_id))
+        ch = realtime_broadcast.team_announcements_channel(str(tenant_id), str(team_id))
     else:
         ch = realtime_broadcast.tenant_announcements_channel(str(tenant_id))
     await realtime_broadcast.broadcast_to(ch, event, {"announcementId": str(ann_id)})

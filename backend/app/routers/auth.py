@@ -272,6 +272,45 @@ async def supabase_refresh(request: Request, response: Response):
     return {"ok": True}
 
 
+@router.get("/realtime-token")
+async def realtime_token(current_user: CurrentUser = Depends(get_current_user)):
+    """Mint a SHORT-LIVED token that authorizes the caller to join Supabase
+    Realtime private channels for exactly the tenants they can access.
+
+    The authorization decision is computed here (the same live
+    user_accessible_tenants check everything else uses) and carried in the
+    token's claims — because a Realtime RLS policy can't reach our app DB
+    (see database/realtime_authorization.sql). Channels are namespaced
+    `tenant:<tenant_id>:…`; the policy matches the topic's tenant against
+    `app_tenants` (or `app_fund_admin`). No claim → no subscription.
+    """
+    import time
+    import jwt as _jwt
+    from app import config
+
+    if not config.SUPABASE_REALTIME_SIGNING_SECRET:
+        raise HTTPException(status_code=501, detail="Realtime token signing is not configured")
+
+    async with get_scoped_connection(current_user.user_id) as conn:
+        is_fund_admin = await conn.fetchval(
+            "SELECT COALESCE(is_fund_admin, false) FROM users WHERE id = $1", current_user.user_id)
+        tenant_ids = [] if is_fund_admin else [
+            str(r["tenant_id"]) for r in await conn.fetch(
+                "SELECT tenant_id FROM user_accessible_tenants($1::uuid)", current_user.user_id)]
+
+    ttl = 3600  # 1h; the client refetches on expiry/reconnect
+    claims = {
+        "sub": str(current_user.user_id),
+        "role": "authenticated",
+        "aud": "authenticated",
+        "exp": int(time.time()) + ttl,
+        "app_fund_admin": bool(is_fund_admin),
+        "app_tenants": tenant_ids,
+    }
+    token = _jwt.encode(claims, config.SUPABASE_REALTIME_SIGNING_SECRET, algorithm="HS256")
+    return {"token": token, "expires_in": ttl, "fund_admin": bool(is_fund_admin)}
+
+
 @router.get("/me", response_model=schemas.MeResponse)
 async def me(current_user: CurrentUser = Depends(get_current_user)):
     tenants, is_fund_admin = await _accessible_tenants_for(current_user.user_id)
