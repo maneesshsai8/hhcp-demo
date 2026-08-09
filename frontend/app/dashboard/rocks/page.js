@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
 import MultiSelect from "@/components/MultiSelect";
 import VcbsPage from "@/app/dashboard/vcbs/page";
+import CreateDrawer from "@/components/CreateDrawer";
 
 const EMPTY = { title: "", due_date: "", status: "on_track", team_id: "", assignee_ids: [], description: "", workstream_id: "" };
 
@@ -27,6 +28,7 @@ export default function RocksPage() {
   const [error, setError] = useState("");
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(EMPTY);
+  const [createOpen, setCreateOpen] = useState(false);
   const [tab, setTab] = useState("list");         // list | board | blueprints | archive
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState("all");
@@ -39,13 +41,6 @@ export default function RocksPage() {
     apiFetch("/vcbs").then(setVcbs).catch(() => {});
   }
   useEffect(() => { setRocks(null); load(); /* eslint-disable-next-line */ }, [activeTenantId]);
-  // live-refresh when an item is created from the global Create drawer
-  useEffect(() => {
-    const h = () => load();
-    window.addEventListener("hhcp:item-created", h);
-    return () => window.removeEventListener("hhcp:item-created", h);
-    /* eslint-disable-next-line */
-  }, [activeTenantId]);
 
   const wsOptions = vcbs.flatMap((v) => v.workstreams.map((w) => ({ id: w.id, label: `${v.title} › ${w.name}` })));
 
@@ -114,7 +109,7 @@ export default function RocksPage() {
               <button className="mod-ghost" onClick={() => apiDownload(`/reports/rocks.pdf?tenant_id=${activeTenantId}`, "rocks.pdf").catch((e) => setError(e.message))}>Export PDF</button>
             </>
           )}
-          {activeTenantId && can("create") && <button className="mod-create" onClick={openModal}>+ Create Rock</button>}
+          {activeTenantId && can("create") && <button className="mod-create" onClick={() => setCreateOpen(true)}>+ Create Rock</button>}
         </div>
       </div>
 
@@ -204,6 +199,8 @@ export default function RocksPage() {
         </>
       )}
 
+      <CreateDrawer open={createOpen} onClose={() => setCreateOpen(false)} initialType="rock" onCreated={() => load()} />
+
       <Modal open={open} onClose={() => setOpen(false)} accent="Rock" onSubmit={createRock} submitDisabled={!f.title.trim()}>
         <label className="fld">Title<input value={f.title} autoFocus onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Add a title for the Rock…" /></label>
         <div className="fld-row-3">
@@ -252,11 +249,7 @@ function RockRow({ r, canDelete, setStatus, delRock }) {
   return (
     <div className="rock-row">
       <div className="rock-cell">
-        <select className={`rock-pill ${sm.cls}`} value={r.status} onChange={(e) => setStatus(r.id, e.target.value)}>
-          <option value="on_track">On-track</option>
-          <option value="off_track">Off-track</option>
-          <option value="complete">Complete</option>
-        </select>
+        <StatusPill value={r.status} onChange={(v) => setStatus(r.id, v)} />
       </div>
       <div className="rock-cell rock-title-cell">
         <span className="rock-title">{r.title}</span>
@@ -269,6 +262,34 @@ function RockRow({ r, canDelete, setStatus, delRock }) {
       <div className="rock-cell"><span className="owner-bubble" title={r.owner_name || "Unassigned"}>{initials(r.owner_name)}</span></div>
       <div className="rock-cell rock-due">{r.due_date || "—"}</div>
       <div className="rock-cell rock-row-actions">{canDelete && <button title="Delete" onClick={() => delRock(r.id)}>🗑</button>}</div>
+    </div>
+  );
+}
+
+function StatusPill({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const sm = STATUS_META[value] || STATUS_META.on_track;
+  return (
+    <div className="status-pill-wrap">
+      <button type="button" className={`status-pill ${sm.cls}`} onClick={() => setOpen((o) => !o)}>
+        <span className="status-dot" />
+        <span className="status-label">{sm.label}</span>
+        <svg className="status-caret" width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <>
+          <div className="status-menu-back" onClick={() => setOpen(false)} />
+          <div className="status-menu">
+            {Object.entries(STATUS_META).map(([k, m]) => (
+              <button key={k} type="button" className={`${m.cls} ${k === value ? "sel" : ""}`}
+                onClick={() => { onChange(k); setOpen(false); }}>
+                <span className="status-dot" />{m.label}
+                {k === value && <span className="status-check">✓</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

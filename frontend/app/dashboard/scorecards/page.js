@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch, apiDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import CreateDrawer from "@/components/CreateDrawer";
 
 const BLANK = {
   title: "",
@@ -190,12 +191,13 @@ function payloadFrom(f) {
 }
 
 export default function ScorecardsPage() {
-  const { activeTenantId, can } = useAuth();
+  const { activeTenantId, can, accessibleTenants } = useAuth();
   const [kpis, setKpis] = useState(null);
   const [people, setPeople] = useState([]);
   const [groups, setGroups] = useState([]);
   const [groupDrawerOpen, setGroupDrawerOpen] = useState(false);
-  const [groupForm, setGroupForm] = useState({ name: "", description: "" });
+  const [groupForm, setGroupForm] = useState({ name: "", description: "", tenant_id: "" });
+  const [createOpen, setCreateOpen] = useState(false);
   const [error, setError] = useState("");
   const [period, setPeriod] = useState("trends");
   const [search, setSearch] = useState("");
@@ -220,13 +222,14 @@ export default function ScorecardsPage() {
 
   async function createGroup(e) {
     e.preventDefault();
-    if (!activeTenantId || !groupForm.name.trim()) return;
+    const tid = groupForm.tenant_id || activeTenantId;   // rollup → picked in the drawer
+    if (!tid || !groupForm.name.trim()) return;
     try {
       await apiFetch("/scorecards/groups", {
         method: "POST",
-        body: JSON.stringify({ tenant_id: activeTenantId, name: groupForm.name, description: groupForm.description || null }),
+        body: JSON.stringify({ tenant_id: tid, name: groupForm.name, description: groupForm.description || null }),
       });
-      setGroupForm({ name: "", description: "" });
+      setGroupForm({ name: "", description: "", tenant_id: "" });
       setGroupDrawerOpen(false);
       load();
     } catch (e) { setError(e.message); }
@@ -403,7 +406,8 @@ export default function ScorecardsPage() {
 
   return (
     <div className="score-page">
-      <ScoreHeader />
+      <ScoreHeader onCreate={() => setCreateOpen(true)} />
+      <CreateDrawer open={createOpen} onClose={() => setCreateOpen(false)} initialType="measurable" onCreated={() => load()} />
       <div className="score-tabs">
         {PERIODS.map((p) => (
           <button key={p.key} className={period === p.key ? "active" : ""} onClick={() => setPeriod(p.key)}>{p.label}</button>
@@ -470,7 +474,7 @@ export default function ScorecardsPage() {
         <div className="score-action-row">
           <button className="score-icon-btn" title="Undo">↶</button>
           <button className="score-icon-btn" title="Redo">↷</button>
-          {can("create") && activeTenantId && <button className="score-outline" onClick={() => { setGroupForm({ name: "", description: "" }); setGroupDrawerOpen(true); }}>⊕ New group</button>}
+          {can("create") && <button className="score-outline" onClick={() => { setGroupForm({ name: "", description: "", tenant_id: activeTenantId || "" }); setGroupDrawerOpen(true); }}>⊕ New group</button>}
           <button className="score-outline" onClick={() => setManagerOpen(true)}>Go to Measurable Manager</button>
           <button className="score-icon-btn" title="More">…</button>
           <label className="score-search">
@@ -536,6 +540,8 @@ export default function ScorecardsPage() {
         <GroupDrawer
           f={groupForm}
           setF={setGroupForm}
+          tenants={accessibleTenants}
+          activeTenantId={activeTenantId}
           onSubmit={createGroup}
           onClose={() => setGroupDrawerOpen(false)}
         />
@@ -554,7 +560,7 @@ export default function ScorecardsPage() {
   );
 }
 
-function ScoreHeader() {
+function ScoreHeader({ onCreate }) {
   return (
     <div className="score-head">
       <div>
@@ -563,7 +569,7 @@ function ScoreHeader() {
       </div>
       <div className="score-head-actions">
         <button className="score-bell" aria-label="Notifications">🔔</button>
-        <button className="score-create">Create</button>
+        <button className="score-create" onClick={onCreate}>Create</button>
       </div>
     </div>
   );
@@ -742,10 +748,14 @@ function GridView(props) {
   );
 }
 
-function GroupDrawer({ f, setF, onSubmit, onClose }) {
+function GroupDrawer({ f, setF, onSubmit, onClose, tenants = [], activeTenantId }) {
   const up = (patch) => setF({ ...f, ...patch });
+  // In rollup (no active workspace) the group needs a target workspace to belong to.
+  const pickable = tenants.filter((t) => t.tenant_type !== "fund");
+  const needsWorkspace = !activeTenantId;
+  const canSave = !!(f.name || "").trim() && !!(f.tenant_id || activeTenantId);
   return (
-    <div className="score-drawer-backdrop">
+    <div className="score-drawer-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <aside className="score-drawer">
         <div className="score-drawer-head">
           <h2>Create group</h2>
@@ -753,11 +763,19 @@ function GroupDrawer({ f, setF, onSubmit, onClose }) {
         </div>
         <form onSubmit={onSubmit}>
           <label className="drawer-field">Name<input value={f.name} onChange={(e) => up({ name: e.target.value })} placeholder="e.g. Sales KPIs" required autoFocus /></label>
+          {needsWorkspace && (
+            <label className="drawer-field">Workspace
+              <select value={f.tenant_id || ""} onChange={(e) => up({ tenant_id: e.target.value })} required>
+                <option value="">Select a workspace…</option>
+                {pickable.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>
+          )}
           <label className="drawer-field">Description <span>(Optional)</span>
             <textarea value={f.description} onChange={(e) => up({ description: e.target.value })} placeholder="Add a description" maxLength={300} />
           </label>
           <div className="score-drawer-footer">
-            <button className="score-save" type="submit">Save</button>
+            <button className="score-save" type="submit" disabled={!canSave}>Save</button>
             <button type="button" className="score-cancel" onClick={onClose}>Cancel</button>
           </div>
         </form>

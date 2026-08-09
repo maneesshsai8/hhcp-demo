@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
-import CreateDrawer from "@/components/CreateDrawer";
 
 /* ------------------------------------------------------------------
    Group the flat tenant list into a parent -> children map so add-ons
@@ -95,7 +94,6 @@ export default function DashboardLayout({ children }) {
   const [wsOpen, setWsOpen] = useState(false);       // workspace dropdown open?
   const [portcoOpen, setPortcoOpen] = useState(true); // admin's "PortCos" section expanded?
   const [navOpen, setNavOpen] = useState(false);      // mobile: off-canvas sidebar open?
-  const [createOpen, setCreateOpen] = useState(false); // unified Create drawer open?
   const switcherRef = useRef(null);
 
   // close the dropdown on outside click
@@ -129,7 +127,7 @@ export default function DashboardLayout({ children }) {
       <aside className={`sidebar ${navOpen ? "open" : ""}`}>
         {/* ---------- Brand + Workspace / PortCo switcher (merged, ninety-style) ---------- */}
         <div className="sidebar-top">
-          <span className="brand-mark" aria-label="HHCP OS">90<em>EOS</em></span>
+          <span className="brand-mark" aria-label="Octane">Octane</span>
           <div className="ws-switcher" ref={switcherRef}>
           <button className={`ws-current ${wsOpen ? "open" : ""}`} onClick={() => setWsOpen((o) => !o)}>
             <span className="ws-current-text">
@@ -176,12 +174,6 @@ export default function DashboardLayout({ children }) {
           )}
           </div>
         </div>
-
-        {/* ---------- Global unified Create (ninety-style quick add) ---------- */}
-        <button className="sidebar-create" onClick={() => setCreateOpen(true)}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>
-          <span>Create</span>
-        </button>
 
         {/* ---------- Module navigation (grouped, ninety-style) ---------- */}
         <nav className="nav">
@@ -236,8 +228,6 @@ export default function DashboardLayout({ children }) {
         </div>
         <div className="content">{children}</div>
       </div>
-
-      <CreateDrawer open={createOpen} onClose={() => setCreateOpen(false)} />
     </div>
   );
 }

@@ -185,14 +185,11 @@ button, input, select { font-family: inherit; font-size: inherit; }
   border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 .brand-mark {
-  width: 34px; height: 34px; border-radius: 9px;
+  border-radius: 8px;
   background: var(--brand-orange); color: #fff;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  font-weight: 700; font-size: 14px; line-height: 1; flex-shrink: 0;
-}
-.brand-mark em {
-  font-style: normal; font-size: 6px; font-weight: 700;
-  letter-spacing: 0.14em; margin-top: 1px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-weight: 800; font-size: 14px; line-height: 1; flex-shrink: 0;
+  padding: 8px 11px; letter-spacing: .005em;
 }
 
 /* ---------- Workspace / PortCo switcher (the ⌄ dropdown) ---------- */
@@ -468,9 +465,9 @@ button, input, select { font-family: inherit; font-size: inherit; }
 .drag-grip { color: var(--muted); margin-right: 6px; cursor: grab; user-select: none; }
 .drag-hint { font-size: 12px; color: var(--muted); }
 .badge.solved { background: var(--on-track-bg, #E7F3EC); color: var(--on-track, #2E7D5B); }
-.velocity-row { display: flex; align-items: flex-end; gap: 10px; height: 70px; margin-top: 8px; }
-.velocity-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.velocity-bar { width: 26px; background: var(--brass, #B98A34); border-radius: 3px 3px 0 0; }
+.velocity-row { display: flex; align-items: flex-end; gap: 10px; height: 84px; margin-top: 10px; overflow: hidden; }
+.velocity-bar-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; justify-content: flex-end; }
+.velocity-bar { width: 26px; max-height: 62px; background: var(--brand-orange, #B98A34); border-radius: 3px 3px 0 0; }
 .velocity-label { font-size: 10px; color: var(--muted); }
 
 /* ---- Team member multi-select ---- */
@@ -1091,7 +1088,7 @@ h1, h2, h3, .display {
 }
 
 :focus-visible {
-  outline: 2px solid rgba(37, 99, 235, 0.65);
+  outline: 2px solid var(--brand-orange);
   outline-offset: 2px;
 }
 
@@ -1160,7 +1157,7 @@ h1, h2, h3, .display {
 .btn-primary,
 .btn-secondary,
 .btn-mini {
-  background: var(--navy);
+  background: var(--brand-orange);
   border-radius: 8px;
   font-weight: 600;
   box-shadow: var(--shadow-sm);
@@ -1169,7 +1166,7 @@ h1, h2, h3, .display {
 .btn-primary:hover,
 .btn-secondary:hover,
 .btn-mini:hover {
-  background: #1d4ed8;
+  background: var(--brand-orange-hover);
 }
 
 .btn-ghost,
@@ -2714,7 +2711,7 @@ h1, h2, h3, .display {
 .mod-embed { margin: 0 -2px; }
 
 .rock-groups { display: flex; flex-direction: column; gap: 18px; }
-.rock-group { background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-sm); overflow: hidden; }
+.rock-group { background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-sm); }
 .rock-group-head { display: flex; align-items: center; gap: 12px; padding: 16px 20px; }
 .rock-group-head h3 { margin: 0; font-size: 17px; font-weight: 700; color: var(--ink); }
 .rock-count { background: var(--surface-2, #eef2f3); color: var(--ink-soft); border-radius: 6px; padding: 1px 8px; font-size: 13px; font-weight: 600; }
@@ -2735,10 +2732,38 @@ h1, h2, h3, .display {
 .rock-row-actions button { border: none; background: none; cursor: pointer; font-size: 15px; opacity: .6; }
 .rock-row-actions button:hover { opacity: 1; }
 
-.rock-pill { appearance: none; -webkit-appearance: none; border: 1px solid transparent; border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
-.rock-pill.on { background: #e7f0fb; color: #2f6fb0; }
-.rock-pill.off { background: var(--off-track-bg); color: var(--off-track); }
-.rock-pill.done { background: var(--on-track-bg); color: var(--on-track); }
+/* Custom status dropdown (replaces the native select pill) */
+.status-pill-wrap { position: relative; display: inline-block; }
+.status-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: none; border-radius: 999px; padding: 6px 11px;
+  font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: none;
+}
+.status-pill:hover, .status-pill:focus, .status-pill:focus-visible { outline: none; }  /* no blue hover */
+.status-pill .status-caret { opacity: .7; margin-left: 1px; }
+.status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: currentColor; }
+.status-pill.on, .status-menu button.on { color: #2f6fb0; }
+.status-pill.off, .status-menu button.off { color: var(--off-track); }
+.status-pill.done, .status-menu button.done { color: var(--on-track); }
+.status-pill.on { background: #e7f0fb; }
+.status-pill.off { background: var(--off-track-bg); }
+.status-pill.done { background: var(--on-track-bg); }
+
+.status-menu-back { position: fixed; inset: 0; z-index: 29; }
+.status-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 30;
+  min-width: 168px; background: #fff; border: 1px solid var(--line);
+  border-radius: 10px; box-shadow: var(--shadow-md); padding: 6px;
+}
+.status-menu button {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  border: none; background: none; padding: 9px 10px; border-radius: 7px;
+  font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.status-menu button:hover { background: var(--paper); }  /* grey, never blue */
+.status-menu button.sel { font-weight: 700; }
+.status-check { margin-left: auto; color: var(--ink-soft); }
 
 .rock-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: start; }
 .rock-col { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 12px; min-height: 120px; }
@@ -2750,3 +2775,69 @@ h1, h2, h3, .display {
 .rock-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
 .rock-card-due { color: var(--ink-soft); font-size: 12px; }
 .rock-col-empty { color: var(--ink-soft); font-size: 13px; text-align: center; padding: 16px 0; }
+
+/* ---- Ninety module list card + To-Dos table (uses .mod-* + .status-menu) ---- */
+.mod-list-card { background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-sm); margin-bottom: 16px; }
+.mod-list-card.stats-card { padding: 14px 20px 18px; }
+.mod-list-head { padding: 16px 20px; }
+.mod-list-head h3 { margin: 0; font-size: 17px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+
+.todo-table { display: flex; flex-direction: column; }
+.todo-thead, .todo-row { display: grid; grid-template-columns: 44px minmax(0,1fr) 120px 56px 44px; align-items: center; gap: 12px; padding: 0 20px; }
+.todo-thead { height: 40px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.todo-row { min-height: 56px; border-bottom: 1px solid var(--line-soft); }
+.todo-row:last-child { border-bottom: none; }
+.todo-row.overdue { background: #fdf1ee; }
+.todo-check { width: 18px; height: 18px; cursor: pointer; accent-color: var(--brand-orange); }
+.todo-title-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 9px 0; }
+.todo-title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.todo-title { font-weight: 600; color: var(--ink); }
+.todo-title.struck { text-decoration: line-through; color: var(--ink-soft); }
+.todo-desc { font-size: 12px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.todo-lock { font-size: 12px; }
+.todo-due { color: var(--ink-soft); font-size: 14px; }
+.todo-actions button { border: none; background: none; cursor: pointer; font-size: 15px; opacity: .55; }
+.todo-actions button:hover { opacity: 1; }
+
+.prio-btn { display: inline-flex; align-items: center; gap: 4px; border: none; cursor: pointer; margin-right: 0; }
+.prio-btn .status-caret { opacity: .7; }
+.prio-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.prio-dot.high { background: var(--off-track); }
+.prio-dot.medium { background: #cc9a1e; }
+.prio-dot.low { background: var(--muted, #9aa4ac); }
+
+/* ---- Issues table (ninety-style ranked list) ---- */
+.issue-table { display: flex; flex-direction: column; }
+.issue-thead, .issue-row { display: grid; grid-template-columns: 26px 30px minmax(0,1fr) 104px 52px 40px; align-items: center; gap: 12px; padding: 0 20px; }
+.issue-thead { height: 40px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--paper); color: var(--ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+.issue-row { min-height: 60px; border-bottom: 1px solid var(--line-soft); }
+.issue-row:last-child { border-bottom: none; }
+.issue-row.draggable { cursor: grab; }
+.issue-grip { color: var(--line-2); font-size: 15px; }
+.issue-title-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 9px 0; }
+.issue-title-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.issue-num { font-weight: 700; color: var(--ink-soft); }
+.issue-title { font-weight: 600; color: var(--ink); }
+.issue-desc { font-size: 12px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.issue-created { color: var(--ink-soft); font-size: 14px; }
+.issue-actions { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.issue-del { border: none; background: none; cursor: pointer; font-size: 15px; opacity: .55; }
+.issue-del:hover { opacity: 1; }
+
+/* "no priority yet" pill (Issues) */
+.prio-pill.none { background: var(--surface-2, #eef2f3); color: var(--ink-soft); text-transform: none; }
+
+/* inline text button */
+.linklike { border: none; background: none; padding: 0; color: var(--brand-orange); font: inherit; cursor: pointer; text-decoration: underline; }
+
+/* Issues UI polish: resolve checkbox + kebab actions menu */
+.issue-check { width: 18px; height: 18px; cursor: pointer; accent-color: var(--on-track); }
+.issue-title.struck { text-decoration: line-through; color: var(--ink-soft); }
+.issue-kebab-cell { display: flex; justify-content: flex-end; }
+.issue-kebab { border: none; background: none; cursor: pointer; font-size: 20px; line-height: 1; color: var(--ink-soft); padding: 4px 6px; border-radius: 6px; }
+.issue-kebab:hover { background: var(--paper); color: var(--ink); }
+.status-menu.right { left: auto; right: 0; }
+.status-menu button.danger { color: var(--off-track); }
+
+/* meeting run-line: let the title take available width beside the status pill */
+.run-line-main { flex: 1; min-width: 0; }

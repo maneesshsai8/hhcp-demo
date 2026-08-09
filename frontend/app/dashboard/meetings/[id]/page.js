@@ -5,6 +5,10 @@ import { apiFetch } from "@/lib/api";
 import { realtime } from "@/lib/supabase";
 import { authorizeRealtime, meetingChannel } from "@/lib/realtime";
 import { useAuth } from "@/lib/auth-context";
+import CreateDrawer from "@/components/CreateDrawer";
+
+const CREATE_TYPE_FOR_KIND = { scorecard: "measurable", rocks: "rock", todos: "todo", issues: "issue" };
+const KIND_FOR_CREATE_TYPE = { measurable: "scorecard", rock: "rocks", todo: "todos", issue: "issues" };
 
 function clock(sec) {
   const m = Math.floor(sec / 60), s = sec % 60;
@@ -17,6 +21,34 @@ function fmtDuration(s) {
   return sec ? `${m} min ${sec} sec` : `${m} min`;
 }
 const initials = (n) => (n || "?").split(" ").map((x) => x[0]).slice(0, 2).join("").toUpperCase();
+const ROCK_STATUS = { on_track: { label: "On-track", cls: "on" }, off_track: { label: "Off-track", cls: "off" }, complete: { label: "Complete", cls: "done" } };
+
+// Compact editable status pill for Rocks inside the live meeting (styled like
+// the Rocks page; no native select — reuses .status-pill / .status-menu).
+function RockStatusPill({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  const sm = ROCK_STATUS[value] || ROCK_STATUS.on_track;
+  return (
+    <span className="status-pill-wrap">
+      <button type="button" className={`status-pill ${sm.cls}`} onClick={() => setOpen((o) => !o)}>
+        <span className="status-dot" /><span className="status-label">{sm.label}</span>
+        <svg className="status-caret" width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <>
+          <div className="status-menu-back" onClick={() => setOpen(false)} />
+          <div className="status-menu right">
+            {Object.entries(ROCK_STATUS).map(([k, m]) => (
+              <button key={k} type="button" className={`${m.cls} ${k === value ? "sel" : ""}`} onClick={() => { onChange(k); setOpen(false); }}>
+                <span className="status-dot" />{m.label}{k === value && <span className="status-check">✓</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
 
 /* Live data embedded in a section. `refetchKey` bumps to force a reload when a
    participant broadcasts a change. `onChanged` lets in-meeting edits notify the room. */
@@ -26,9 +58,11 @@ function SectionData({ kind, tenantId, refetchKey, onChanged }) {
   const path = { scorecard: "/scorecards", rocks: "/rocks", todos: "/todos", issues: "/issues", vcbs: "/vcbs" }[kind];
 
   const load = useCallback(() => {
-    if (!path) return;
-    apiFetch(path).then(setRows).catch(() => setRows([]));
-  }, [path]);
+    if (!path || !tenantId) return;
+    // scope to THIS meeting's tenant so we show the right PortCo's items
+    // (an admin's /rocks etc. would otherwise span every tenant).
+    apiFetch(`${path}?tenant_id=${tenantId}`).then(setRows).catch(() => setRows([]));
+  }, [path, tenantId]);
   useEffect(() => { setRows(null); load(); }, [load, refetchKey]);
 
   if (!path) return null;
@@ -42,9 +76,18 @@ function SectionData({ kind, tenantId, refetchKey, onChanged }) {
           <td>{latest ? <span className={`badge ${latest.status === "ON_TRACK" ? "on_track" : "off_track"}`}>{latest.actual_value}</span> : "—"}</td></tr>;
       })}</tbody></table>
   );
-  if (kind === "rocks") return rows.length ? rows.map((r) => (
-    <div className="run-line" key={r.id}><span>{r.title}</span><span className={`badge ${r.status || ""}`}>{(r.status || "").replace("_", " ")}</span></div>
-  )) : <p className="card-meta">No Rocks.</p>;
+  if (kind === "rocks") {
+    async function setStatus(r, status) {
+      await apiFetch(`/rocks/${r.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      load(); onChanged?.("rocks");
+    }
+    return rows.length ? rows.map((r) => (
+      <div className="run-line" key={r.id}>
+        <span className="run-line-main">{r.title}{r.owner_name ? <span className="card-meta"> · {r.owner_name}</span> : ""}</span>
+        <RockStatusPill value={r.status} onChange={(s) => setStatus(r, s)} />
+      </div>
+    )) : <p className="card-meta">No Rocks.</p>;
+  }
 
   if (kind === "vcbs") return rows.length ? rows.map((v) => (
     <div className="run-line" key={v.id}>
@@ -163,6 +206,7 @@ export default function MeetingRunner() {
   const [refetch, setRefetch] = useState({});          // {issues: n, todos: n, ...}
   const [rating, setRating] = useState(8);
   const [notes, setNotes] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const [live, setLive] = useState(false);
   const [overtime, setOvertime] = useState(false);
   const [canEdit, setCanEdit] = useState(true);        // facilitator? from /live-state
@@ -172,7 +216,7 @@ export default function MeetingRunner() {
   const audioRef = useRef(null);
   const chRef = useRef(null);
   const refetchTimer = useRef(null);
-  const { user } = useAuth();
+  const { user, can } = useAuth();
 
   useEffect(() => {
     apiFetch(`/meetings/${id}`).then((m) => {
@@ -283,7 +327,9 @@ export default function MeetingRunner() {
   // idx is set optimistically for instant feedback.
   const goSection = (i) => {
     setIdx(i);
-    if (canEdit) apiFetch(`/meetings/${id}/current-section`, { method: "POST", body: JSON.stringify({ index: i }) }).catch(() => {});
+    // A rejected write (e.g. a 409 if the server state moved) is not an error to
+    // show — just reconcile against the authoritative /live-state.
+    if (canEdit) apiFetch(`/meetings/${id}/current-section`, { method: "POST", body: JSON.stringify({ index: i }) }).catch(() => scheduleSync());
   };
   // Lightweight, non-authoritative "please refresh this list" hint to the room.
   const broadcastChange = (what) => {
@@ -291,8 +337,21 @@ export default function MeetingRunner() {
     setRefetch((r) => ({ ...r, [what]: (r[what] || 0) + 1 }));
   };
 
-  if (error) return <div style={{ padding: 28 }}><div className="error-banner">{error}</div></div>;
-  if (!meeting) return <div style={{ padding: 28 }} className="loading-line">Loading meeting…</div>;
+  if (error) return (
+    <div style={{ padding: 28 }}>
+      <div className="error-banner">Couldn&rsquo;t open this meeting: {error}</div>
+      <button className="mod-ghost" style={{ marginTop: 14 }} onClick={() => router.push("/dashboard/meetings")}>← Back to meetings</button>
+    </div>
+  );
+  if (!meeting) return (
+    <div style={{ padding: 28 }}>
+      <p className="loading-line">Loading meeting…</p>
+      <p className="page-sub" style={{ marginTop: 10 }}>
+        Stuck on this screen? The app was updated — hard-refresh with <b>Cmd/Ctrl + Shift + R</b>, or{" "}
+        <button className="linklike" onClick={() => router.push("/dashboard/meetings")}>go back to meetings</button>.
+      </p>
+    </div>
+  );
   if (meeting.status === "completed") return <MeetingSummary meeting={meeting} router={router} />;
 
   const roster = meeting.roster || [];
@@ -313,7 +372,13 @@ export default function MeetingRunner() {
       const r = await apiFetch(`/meetings/${id}/${action}`, { method: "POST", body: JSON.stringify({}) });
       setMeeting((m) => (m ? { ...m, status: r.status } : m));
       if (action === "cancel") router.push("/dashboard/meetings");
-    } catch (e) { setError(e.message); }
+    } catch (e) {
+      // A 409 here means the meeting's state already moved (another action/event
+      // raced this one). Don't take over the page with an error — just reconcile
+      // to the true server state so the controls reflect reality.
+      if (/\b409\b/.test(e.message) || /state/i.test(e.message)) syncLiveState();
+      else setError(e.message);
+    }
   }
   const paused = meeting.status === "paused";
 
@@ -346,10 +411,18 @@ export default function MeetingRunner() {
       </aside>
 
       <div className="runner-main">
+        <CreateDrawer
+          open={createOpen}
+          onClose={() => setCreateOpen(false)}
+          tenantId={meeting.tenant_id}
+          initialType={CREATE_TYPE_FOR_KIND[cur?.kind] || "issue"}
+          onCreated={(t) => broadcastChange(KIND_FOR_CREATE_TYPE[t] || "issues")}
+        />
         {paused && <div className="ok-banner" style={{ background: "#fff8e6", color: "#9a6b00", borderColor: "#e0a100" }}>⏸ Meeting paused — timers are held. Resume to continue.</div>}
         <div className="runner-head">
           <h1 className="page-title display" style={{ margin: 0 }}>{cur?.label} <span className="runner-agenda">· {meeting.title}</span></h1>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            {can("create") && <button className="mod-create" onClick={() => setCreateOpen(true)}>+ Create</button>}
             {/* per-section timer with overtime alert */}
             {secLimit && (
               <div className={`sec-timer ${overtime ? "over" : secElapsed >= secLimit * 0.8 ? "warn" : ""}`} title={overtime ? "Over the allotted time — wrap up" : ""}>

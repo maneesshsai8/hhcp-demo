@@ -69,7 +69,10 @@ async def list_members(team_id: str, current_user: CurrentUser = Depends(get_cur
     async with get_scoped_connection(current_user.user_id) as conn:
         rows = await conn.fetch(
             """
-            SELECT tm.id, tm.user_id, u.name, u.email
+            -- id = the USER id (matches /directory shape) so team members are
+            -- interchangeable as owner/assignee options. membership_id kept for
+            -- reference; removal keys on user_id, not the membership row id.
+            SELECT tm.user_id AS id, tm.user_id, tm.id AS membership_id, u.name, u.email
             FROM team_members tm
             JOIN users u ON u.id = tm.user_id
             WHERE tm.team_id = $1

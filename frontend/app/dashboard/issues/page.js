@@ -3,8 +3,12 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { apiFetch, apiDownload } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import Modal from "@/components/Modal";
+import CreateDrawer from "@/components/CreateDrawer";
 
 const EMPTY = { title: "", priority: "", category: "", team_id: "", owner_id: "", vcb_id: "", description: "" };
+const initials = (n) => (n || "?").split(" ").filter(Boolean).map((s) => s[0]).slice(0, 2).join("").toUpperCase();
+const PRIOS = ["low", "medium", "high"];
+const PRIO_LABEL = { low: "Low", medium: "Medium", high: "High" };
 
 export default function IssuesPage() {
   const { activeTenantId, can } = useAuth();
@@ -17,6 +21,7 @@ export default function IssuesPage() {
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [open, setOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const [f, setF] = useState(EMPTY);
   const [tab, setTab] = useState("open");        // 'open' | 'solved'
   const [teamF, setTeamF] = useState("");
@@ -35,13 +40,6 @@ export default function IssuesPage() {
     apiFetch(`/directory${activeTenantId ? `?tenant_id=${activeTenantId}` : ""}`).then(setPeople).catch(() => {});
     apiFetch("/vcbs").then(setVcbs).catch(() => {});
   }, [activeTenantId, load]);
-
-  // live-refresh when an item is created from the global Create drawer
-  useEffect(() => {
-    const h = () => load();
-    window.addEventListener("hhcp:item-created", h);
-    return () => window.removeEventListener("hhcp:item-created", h);
-  }, [load]);
 
   const flash = (m) => { setMsg(m); setTimeout(() => setMsg(""), 3500); };
 
@@ -77,6 +75,10 @@ export default function IssuesPage() {
     try { await apiFetch(`/issues/${i.id}`, { method: "PATCH", body: JSON.stringify({ status: "open" }) }); load(); }
     catch (e) { setError(e.message); }
   }
+  async function setPriority(i, priority) {
+    try { await apiFetch(`/issues/${i.id}`, { method: "PATCH", body: JSON.stringify({ priority }) }); load(); }
+    catch (e) { setError(e.message); }
+  }
   async function delIssue(id) {
     if (!confirm("Delete this issue?")) return;
     try { await apiFetch(`/issues/${id}`, { method: "DELETE" }); load(); } catch (e) { setError(e.message); }
@@ -109,40 +111,41 @@ export default function IssuesPage() {
   const draggable = tab === "open" && can("edit") && !teamF;
 
   return (
-    <div>
-      <div className="page-head-row">
+    <div className="mod-page">
+      <div className="mod-head">
         <div>
-          <h1 className="page-title display">Issues</h1>
-          <p className="page-sub">Identify, rank, own, and resolve — a simple Open → Resolved list.</p>
+          <h1 className="mod-title">Issues</h1>
+          <p className="mod-sub">Identify and organize your team&rsquo;s most pressing Issues to resolve them with ease.</p>
         </div>
-        <div className="head-actions">
+        <div className="mod-head-actions">
           {activeTenantId && issues && issues.length > 0 && (
             <>
-              <button className="btn-ghost" onClick={() => apiDownload(`/reports/issues.xlsx?tenant_id=${activeTenantId}`, "issues.xlsx").catch((e) => setError(e.message))}>Export Excel</button>
-              <button className="btn-ghost" onClick={() => apiDownload(`/reports/issues.pdf?tenant_id=${activeTenantId}`, "issues.pdf").catch((e) => setError(e.message))}>Export PDF</button>
+              <button className="mod-ghost" onClick={() => apiDownload(`/reports/issues.xlsx?tenant_id=${activeTenantId}`, "issues.xlsx").catch((e) => setError(e.message))}>Export Excel</button>
+              <button className="mod-ghost" onClick={() => apiDownload(`/reports/issues.pdf?tenant_id=${activeTenantId}`, "issues.pdf").catch((e) => setError(e.message))}>Export PDF</button>
             </>
           )}
-          {activeTenantId && can("create") && <button className="btn-secondary" onClick={() => setOpen(true)}>+ Create Issue</button>}
+          {activeTenantId && can("create") && <button className="mod-create" onClick={() => setCreateOpen(true)}>+ Create Issue</button>}
         </div>
+      </div>
+
+      <div className="mod-tabs">
+        <button className={tab === "open" ? "active" : ""} onClick={() => setTab("open")}>Short-Term{stats ? ` (${stats.open})` : ""}</button>
+        <button className={tab === "solved" ? "active" : ""} onClick={() => setTab("solved")}>Resolved{stats ? ` (${stats.solved})` : ""}</button>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
       {msg && <div className="ok-banner">{msg}</div>}
 
-      <div className="filter-bar">
-        <div className="seg">
-          <button className={tab === "open" ? "on" : ""} onClick={() => setTab("open")}>Open{stats ? ` (${stats.open})` : ""}</button>
-          <button className={tab === "solved" ? "on" : ""} onClick={() => setTab("solved")}>Resolved{stats ? ` (${stats.solved})` : ""}</button>
-        </div>
-        <select className="mini-input" value={teamF} onChange={(e) => setTeamF(e.target.value)}>
-          <option value="">Company-wide</option>
+      <div className="mod-toolbar">
+        <select className="mod-filter" value={teamF} onChange={(e) => setTeamF(e.target.value)}>
+          <option value="">Team: Company-wide</option>
           {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
         {tab === "open" && draggable && <span className="drag-hint">↕ drag to rank priority</span>}
       </div>
 
       {stats && (stats.solved > 0 || stats.velocity.length > 0) && (
-        <div className="card stats-card">
+        <div className="mod-list-card stats-card">
           <p className="mini-label">Resolution velocity {stats.avg_days_to_resolve != null ? `· avg ${stats.avg_days_to_resolve}d to resolve` : ""}</p>
           <div className="velocity-row">
             {stats.velocity.length === 0 && <span className="card-meta">No issues resolved in the last 8 weeks.</span>}
@@ -161,43 +164,23 @@ export default function IssuesPage() {
         <div className="empty-state"><p className="display">{tab === "open" ? "No open issues" : "No resolved issues"}</p><p>{tab === "open" ? "Nothing raised here yet — that’s a good sign." : "Resolved issues will be archived here with notes."}</p></div>
       )}
 
-      {issues && issues.map((i, idx) => (
-        <div
-          className={`card issue-card ${draggable ? "draggable" : ""}`}
-          key={i.id}
-          draggable={draggable}
-          onDragStart={() => (dragIdx.current = idx)}
-          onDragOver={(e) => draggable && e.preventDefault()}
-          onDrop={() => draggable && onDrop(idx)}
-        >
-          <div className="card-row">
-            <div>
-              <p className="card-title">
-                {draggable && <span className="drag-grip">⠿</span>}
-                {i.priority && <span className={`prio-pill ${i.priority}`}>{i.priority}</span>} {i.title}
-                {i.category && <span className="freq-tag">{i.category}</span>}
-                {i.vcb_title && <span className="freq-tag" title="Linked VCB">↑ {i.vcb_title}</span>}
-              </p>
-              {i.description && <p className="card-meta">{i.description}</p>}
-              {i.status === "solved" && i.resolution_note && <p className="card-meta">✓ {i.resolution_note}</p>}
-              <p className="card-meta">
-                Owner: {i.owner_name || "Unassigned"}
-                {" · "}Raised by {i.created_by_name || "system"}
-                {i.team_name ? ` · Team: ${i.team_name}` : ""}
-                {i.status === "solved" && i.solved_at ? ` · Resolved ${i.solved_at.slice(0, 10)}` : ""}
-              </p>
-            </div>
-            <div className="card-controls">
-              <span className={`badge ${i.status === "solved" ? "solved" : "open"}`}>{i.status === "solved" ? "resolved" : "open"}</span>
-              {can("create") && i.status === "open" && <button className="btn-mini ghost" onClick={() => makeTodo(i)} title="Create a linked To-Do">→ To-Do</button>}
-              {i.status === "open"
-                ? <button className="btn-mini" onClick={() => resolve(i)}>Resolve</button>
-                : <button className="btn-mini" onClick={() => reopen(i)}>Reopen</button>}
-              {can("delete") && <button className="link-danger" onClick={() => delIssue(i.id)}>Delete</button>}
-            </div>
+      {issues && issues.length > 0 && (
+        <div className="mod-list-card">
+          <div className="mod-list-head"><h3>{tab === "open" ? "Short-Term" : "Resolved"} <span className="rock-count">{issues.length}</span></h3></div>
+          <div className="issue-table">
+            <div className="issue-thead"><span></span><span></span><span>Title</span><span>Created</span><span>Owner</span><span></span></div>
+            {issues.map((i, idx) => (
+              <IssueRow
+                key={i.id} i={i} idx={idx} tab={tab} draggable={draggable} dragIdx={dragIdx} onDrop={onDrop}
+                canCreate={can("create")} canDelete={can("delete")} canEdit={can("edit")}
+                setPriority={setPriority} resolve={resolve} reopen={reopen} makeTodo={makeTodo} delIssue={delIssue}
+              />
+            ))}
           </div>
         </div>
-      ))}
+      )}
+
+      <CreateDrawer open={createOpen} onClose={() => setCreateOpen(false)} initialType="issue" onCreated={() => load()} />
 
       <Modal open={open} onClose={() => setOpen(false)} accent="Issue" onSubmit={createIssue} submitDisabled={!f.title.trim()}>
         <label className="fld">Title<input value={f.title} autoFocus onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Add a title for the Issue…" /></label>
@@ -237,5 +220,83 @@ export default function IssuesPage() {
         </label>
       </Modal>
     </div>
+  );
+}
+
+function IssueRow({ i, idx, tab, draggable, dragIdx, onDrop, canCreate, canDelete, canEdit, setPriority, resolve, reopen, makeTodo, delIssue }) {
+  const [menu, setMenu] = useState(false);
+  const solved = i.status === "solved";
+  return (
+    <div
+      className={`issue-row ${draggable ? "draggable" : ""}`}
+      draggable={draggable}
+      onDragStart={() => (dragIdx.current = idx)}
+      onDragOver={(e) => draggable && e.preventDefault()}
+      onDrop={() => draggable && onDrop(idx)}
+    >
+      <div className="issue-cell issue-grip">{draggable ? "⠿" : ""}</div>
+      <div className="issue-cell">
+        <input type="checkbox" className="issue-check" checked={solved}
+          title={solved ? "Reopen" : "Mark resolved"}
+          onChange={() => (solved ? reopen(i) : resolve(i))} />
+      </div>
+      <div className="issue-cell issue-title-cell">
+        <div className="issue-title-line">
+          {tab === "open" && <span className="issue-num">{idx + 1}.</span>}
+          {canEdit
+            ? <PriorityPill value={i.priority} onChange={(p) => setPriority(i, p)} />
+            : (i.priority && <span className={`prio-pill ${i.priority}`}>{i.priority}</span>)}
+          <span className={`issue-title ${solved ? "struck" : ""}`}>{i.title}</span>
+          {i.category && <span className="freq-tag">{i.category}</span>}
+          {i.vcb_title && <span className="rock-vcb" title="Linked VCB">↑ {i.vcb_title}</span>}
+        </div>
+        {i.description && <span className="issue-desc">{i.description}</span>}
+        {solved && i.resolution_note && <span className="issue-desc">✓ {i.resolution_note}</span>}
+        <span className="issue-desc">Raised by {i.created_by_name || "system"}{i.team_name ? ` · ${i.team_name}` : ""}{solved && i.solved_at ? ` · resolved ${i.solved_at.slice(0, 10)}` : ""}</span>
+      </div>
+      <div className="issue-cell issue-created">{i.created_at ? i.created_at.slice(0, 10) : "—"}</div>
+      <div className="issue-cell"><span className="owner-bubble" title={i.owner_name || "Unassigned"}>{initials(i.owner_name)}</span></div>
+      <div className="issue-cell issue-kebab-cell">
+        {(canCreate || canDelete) && (
+          <span className="status-pill-wrap">
+            <button type="button" className="issue-kebab" title="More" onClick={() => setMenu((o) => !o)}>⋯</button>
+            {menu && (
+              <>
+                <div className="status-menu-back" onClick={() => setMenu(false)} />
+                <div className="status-menu right">
+                  {canCreate && !solved && <button type="button" onClick={() => { setMenu(false); makeTodo(i); }}>→ Create To-Do</button>}
+                  <button type="button" onClick={() => { setMenu(false); (solved ? reopen(i) : resolve(i)); }}>{solved ? "Reopen issue" : "Resolve issue"}</button>
+                  {canDelete && <button type="button" className="danger" onClick={() => { setMenu(false); delIssue(i.id); }}>Delete</button>}
+                </div>
+              </>
+            )}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PriorityPill({ value, onChange }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="status-pill-wrap">
+      <button type="button" className={`prio-pill ${value || "none"} prio-btn`} onClick={() => setOpen((o) => !o)}>
+        {value || "priority"}
+        <svg className="status-caret" width="11" height="11" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <>
+          <div className="status-menu-back" onClick={() => setOpen(false)} />
+          <div className="status-menu">
+            {PRIOS.map((p) => (
+              <button key={p} type="button" className={p === value ? "sel" : ""} onClick={() => { onChange(p); setOpen(false); }}>
+                <span className={`prio-dot ${p}`} />{PRIO_LABEL[p]}{p === value && <span className="status-check">✓</span>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </span>
   );
 }
