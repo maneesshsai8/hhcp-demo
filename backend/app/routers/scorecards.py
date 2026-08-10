@@ -37,6 +37,7 @@ class NewKpiRequest(BaseModel):
     description: str | None = None
     owner_id: str | None = None
     group_id: str | None = None                # optional KPI group section
+    team_id: str | None = None                 # optional owning team
 
 
 class UpdateKpiRequest(BaseModel):
@@ -51,6 +52,8 @@ class UpdateKpiRequest(BaseModel):
     owner_id: str | None = None
     sort_order: int | None = None
     group_id: str | None = None                # explicitly sent = move group (null = default)
+    team_id: str | None = None                 # explicitly sent = (re)assign team (null = no team)
+    archived: bool | None = None               # explicitly sent = archive / restore
 
 
 class ReorderRequest(BaseModel):
@@ -99,6 +102,8 @@ def _op_for(direction: str) -> str:
 async def get_scorecards(
     tenant_id: str | None = Query(default=None),
     frequency: str | None = Query(default=None),  # optional 'weekly'/'monthly' filter
+    archived: bool = Query(default=False),         # False = active scorecard; True = Archived view
+    team_id: str | None = Query(default=None),     # optional team filter ("measurables by team")
     current_user: CurrentUser = Depends(get_current_user),
 ):
     """
@@ -109,23 +114,27 @@ async def get_scorecards(
     """
     target_tenant = tenant_id or current_user.active_tenant_id
     async with get_scoped_connection(current_user.user_id) as conn:
-        return await fetch_scorecards(conn, target_tenant, frequency)
+        return await fetch_scorecards(conn, target_tenant, frequency, archived, team_id)
 
 
-async def fetch_scorecards(conn, target_tenant, frequency=None):
+async def fetch_scorecards(conn, target_tenant, frequency=None, archived=False, team_id=None):
     """Shared scorecard shaping used by the JSON endpoint and the Excel/PDF exports."""
     kpis = await conn.fetch(
         """
         SELECT k.id, k.title, k.description, k.frequency, k.direction,
                k.target_value, k.green_threshold, k.red_threshold, k.comparison_operator,
-               k.unit, k.sort_order, u.name AS owner_name, k.owner_id, k.tenant_id, k.group_id
+               k.unit, k.sort_order, u.name AS owner_name, k.owner_id, k.tenant_id, k.group_id,
+               k.archived, k.team_id, t.name AS team_name
         FROM kpis k
         LEFT JOIN users u ON u.id = k.owner_id
+        LEFT JOIN teams t ON t.id = k.team_id
         WHERE ($1::uuid IS NULL OR k.tenant_id = $1::uuid)
           AND ($2::text IS NULL OR k.frequency = $2::text)
+          AND k.archived = $3::bool
+          AND ($4::uuid IS NULL OR k.team_id = $4::uuid)
         ORDER BY k.sort_order, k.title
         """,
-        target_tenant, frequency,
+        target_tenant, frequency, archived, team_id,
     )
 
     result = []
@@ -181,6 +190,9 @@ async def fetch_scorecards(conn, target_tenant, frequency=None):
             "sort_order": k["sort_order"],
             "tenant_id": str(k["tenant_id"]),
             "group_id": str(k["group_id"]) if k["group_id"] else None,
+            "team_id": str(k["team_id"]) if k["team_id"] else None,
+            "team_name": k["team_name"],
+            "archived": k["archived"],
             "weekly_history": list(reversed(weekly)),  # chronological for charting
             "current_rag": weekly[0]["rag"] if weekly else None,
             "off_track_streak": red_streak,
@@ -202,13 +214,13 @@ async def create_kpi(body: NewKpiRequest, current_user: CurrentUser = Depends(ge
             """
             INSERT INTO kpis (tenant_id, title, description, owner_id, target_value,
                               green_threshold, red_threshold, direction, frequency,
-                              comparison_operator, unit, sort_order, group_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                              comparison_operator, unit, sort_order, group_id, team_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             RETURNING id, title
             """,
             body.tenant_id, body.title, body.description, body.owner_id or current_user.user_id,
             body.target_value, green, red, body.direction, body.frequency,
-            _op_for(body.direction), body.unit, next_order, body.group_id,
+            _op_for(body.direction), body.unit, next_order, body.group_id, body.team_id,
         )
         await audit.log(conn, current_user.user_id, "scorecard.kpi_create", entity_type="kpi",
                         entity_id=row["id"], tenant_id=body.tenant_id, detail=body.title)
@@ -251,6 +263,12 @@ async def update_kpi(kpi_id: str, body: UpdateKpiRequest, current_user: CurrentU
         # it back to the default section. (COALESCE can't express "set to null".)
         if "group_id" in body.model_fields_set:
             await conn.execute("UPDATE kpis SET group_id = $2 WHERE id = $1", kpi_id, body.group_id)
+        # team_id / archived: same explicit-presence rule so an omitted field is
+        # never disturbed (COALESCE can't express "set to null" / "set to false").
+        if "team_id" in body.model_fields_set:
+            await conn.execute("UPDATE kpis SET team_id = $2 WHERE id = $1", kpi_id, body.team_id)
+        if "archived" in body.model_fields_set:
+            await conn.execute("UPDATE kpis SET archived = $2 WHERE id = $1", kpi_id, body.archived)
         await audit.log(conn, current_user.user_id, "scorecard.kpi_edit", entity_type="kpi",
                         entity_id=kpi_id, tenant_id=str(row["tenant_id"]), detail=row["title"])
     return {"id": str(row["id"]), "title": row["title"]}

@@ -2309,7 +2309,12 @@ h1, h2, h3, .display {
 .drag-handle {
   color: #999;
   margin-right: 10px;
+  cursor: grab;
+  user-select: none;
 }
+.drag-handle:active { cursor: grabbing; }
+/* drop indicator line while dragging a scorecard row */
+.score-table tr.row-drop td { box-shadow: inset 0 2px 0 0 var(--brand-orange, #ff6b00); }
 
 .score-cell {
   text-align: right;
@@ -2591,22 +2596,26 @@ h1, h2, h3, .display {
 
 .score-manager-modal {
   width: min(930px, 100%);
-  min-height: 720px;
+  max-height: calc(100vh - 48px);   /* never taller than the viewport */
   background: #fff;
   border-radius: 6px;
   box-shadow: 0 20px 70px rgba(0,0,0,.35);
-  padding: 30px 32px 24px;
+  padding: 26px 28px 0;
+  display: flex;
+  flex-direction: column;           /* head / filters / body(scroll) / foot */
+  overflow: hidden;
 }
 
 .score-manager-head {
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 22px;
+  margin-bottom: 16px;
+  flex: none;
 }
 
 .score-manager-head h2 {
-  margin: 0 0 10px;
+  margin: 0 0 8px;
   font-size: 24px;
 }
 
@@ -2620,41 +2629,156 @@ h1, h2, h3, .display {
   box-shadow: 0 0 0 3px rgba(255,107,0,.12);
 }
 
+/* filter row: Active/Archived tabs, Person, Team, and the bulk Select Action */
+.score-manager-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+  flex: none;
+}
+.mm-filter-spacer { flex: 1; }
+.mm-tabs { display: inline-flex; border: 1px solid #ddd; border-radius: 6px; overflow: hidden; }
+.mm-tab { border: none; background: #fff; padding: 7px 14px; font-size: 13px; color: #555; cursor: pointer; }
+.mm-tab.active { background: var(--brand-orange, #ff6b00); color: #fff; }
+.mm-select {
+  height: 34px; border: 1px solid #ddd; border-radius: 6px; padding: 0 10px;
+  background: #fff; font-size: 13px; color: #444; cursor: pointer;
+}
+.mm-bulk-btn {
+  height: 34px; border: none; border-radius: 6px; padding: 0 14px;
+  background: var(--brand-orange, #ff6b00); color: #fff; font-weight: 600; font-size: 13px; cursor: pointer;
+}
+
+/* the scrollable table area — this is what keeps the footer always on screen */
+.score-manager-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  min-height: 120px;
+}
+
 .score-manager-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 24px;
   font-size: 15px;
 }
 
 .score-manager-table th,
 .score-manager-table td {
   text-align: left;
-  padding: 12px 14px;
-  border-bottom: 1px solid #e6e6e6;
+  padding: 11px 14px;
+  border-bottom: 1px solid #eee;
+  vertical-align: middle;
 }
 
-.score-manager-table th {
-  color: #888;
-  font-weight: 500;
+.score-manager-table thead th {
+  position: sticky; top: 0; background: #fafafa; z-index: 1;
+  color: #888; font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .03em;
 }
+.score-manager-table td.check, .score-manager-table th.check { width: 40px; }
+.score-manager-table tr.sel { background: #fff6f0; }
+.score-manager-table .mm-title button {
+  border: none; background: none; padding: 0; color: #1b1b21; font-weight: 500; cursor: pointer; text-align: left;
+}
+.score-manager-table .mm-title button:hover { color: var(--brand-orange, #ff6b00); text-decoration: underline; }
+.mm-muted { color: #aaa; }
+.mm-empty { text-align: center; color: #999; padding: 34px 0; }
+.mm-actions-col, .mm-rowtools { width: 46px; text-align: right; }
+.mm-dots {
+  border: none; background: none; font-size: 20px; line-height: 1; color: #888;
+  cursor: pointer; padding: 2px 6px; border-radius: 4px;
+}
+.mm-dots:hover { background: #f0f0f0; color: #333; }
+
+/* shared action dropdown (bulk + per-row) */
+.score-actions-menu {
+  position: absolute;
+  right: 0; top: calc(100% + 4px);
+  min-width: 184px;
+  background: #fff;
+  border: 1px solid #e2e2e2;
+  border-radius: 8px;
+  box-shadow: 0 12px 34px rgba(0,0,0,.16);
+  padding: 6px;
+  z-index: 40;
+  display: flex; flex-direction: column;
+}
+.score-actions-menu button {
+  display: flex; align-items: center; gap: 9px;
+  border: none; background: none; text-align: left;
+  padding: 9px 10px; border-radius: 6px; font-size: 14px; color: #333; cursor: pointer;
+}
+.score-actions-menu button:hover { background: #f5f5f5; }
+.score-actions-menu button.danger { color: #b23636; }
+.score-actions-menu button.danger:hover { background: #fbeae8; }
+/* left-anchored variant used by the Scorecard grid group cards */
+.score-actions-menu.left { right: auto; left: 0; }
+
+/* grid group-card "Select action" button */
+.score-action-btn {
+  height: 34px; border: none; border-radius: 6px; padding: 0 14px;
+  background: var(--brand-orange, #ff6b00); color: #fff; font-weight: 600; font-size: 13px; cursor: pointer;
+}
+
+/* "Move to group" submenu */
+.score-submenu-wrap { position: relative; }
+.score-submenu {
+  margin: 2px 0 2px 8px;
+  display: flex; flex-direction: column;
+  border-left: 2px solid #eee; padding-left: 6px;
+}
+.score-submenu button { font-size: 13px; }
+.score-submenu-empty { color: #aaa; font-size: 12px; padding: 6px 10px; }
+
+/* selected row highlight in the scorecard grid */
+.score-table tr.row-sel { background: #fff6f0; }
 
 .score-manager-foot {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 22px;
-  margin-top: 360px;
+  gap: 14px;
+  padding: 14px 0;
+  margin-top: auto;
+  border-top: 1px solid #eee;
   color: #555;
+  flex: none;
 }
-
+.mm-foot-spacer { flex: 1; }
 .score-manager-foot button {
   min-height: 38px;
   border: 1px solid #ddd;
-  border-radius: 4px;
+  border-radius: 6px;
   background: #fff;
-  padding: 0 16px;
+  padding: 0 18px;
+  cursor: pointer;
 }
+.score-manager-foot .score-save {
+  background: var(--brand-orange, #ff6b00);
+  border-color: var(--brand-orange, #ff6b00);
+  color: #fff;
+  font-weight: 600;
+}
+.score-manager-foot .score-save:disabled { opacity: .5; cursor: not-allowed; }
+
+/* reassign owner picker */
+.mm-reassign-backdrop {
+  position: fixed; inset: 0; z-index: 120;
+  background: rgba(0,0,0,.3); display: flex; align-items: center; justify-content: center;
+}
+.mm-reassign {
+  width: min(360px, 92vw); background: #fff; border-radius: 10px; padding: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.3); display: flex; flex-direction: column; gap: 12px;
+  max-height: 70vh;
+}
+.mm-reassign h3 { margin: 0; font-size: 17px; }
+.mm-reassign-list { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.mm-reassign-list button {
+  display: flex; align-items: center; gap: 10px; border: none; background: none;
+  padding: 9px 8px; border-radius: 6px; font-size: 14px; cursor: pointer; text-align: left;
+}
+.mm-reassign-list button:hover { background: #f5f5f5; }
+.mm-reassign > .score-cancel { align-self: flex-end; min-height: 34px; border: 1px solid #ddd; border-radius: 6px; background: #fff; padding: 0 14px; cursor: pointer; }
 
 @media (max-width: 980px) {
   .score-page {
@@ -2770,7 +2894,10 @@ h1, h2, h3, .display {
 .rock-col-head { display: flex; align-items: center; gap: 8px; font-weight: 700; color: var(--ink); margin: 4px 6px 12px; }
 .rock-dot { width: 9px; height: 9px; border-radius: 50%; }
 .rock-dot.on { background: #2f6fb0; } .rock-dot.off { background: var(--off-track); } .rock-dot.done { background: var(--on-track); }
-.rock-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: var(--shadow-sm); }
+.rock-card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 10px; box-shadow: var(--shadow-sm); cursor: grab; }
+.rock-card:active { cursor: grabbing; }
+.rock-card.dragging { opacity: .45; }
+.rock-col.drag-over { background: var(--brand-orange-soft, #fff1e8); border-color: var(--brand-orange, #ff6b00); border-style: dashed; }
 .rock-card-title { margin: 0 0 6px; font-weight: 600; color: var(--ink); font-size: 14px; }
 .rock-card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
 .rock-card-due { color: var(--ink-soft); font-size: 12px; }

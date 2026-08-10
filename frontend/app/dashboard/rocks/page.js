@@ -33,6 +33,8 @@ export default function RocksPage() {
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState("all");
   const [ownerF, setOwnerF] = useState("all");
+  const [dragId, setDragId] = useState(null);      // rock being dragged on the board
+  const [dragOverCol, setDragOverCol] = useState(null);
 
   function load() {
     apiFetch("/rocks").then(setRocks).catch((e) => setError(e.message));
@@ -167,10 +169,26 @@ export default function RocksPage() {
               {["on_track", "off_track", "complete"].map((s) => {
                 const col = filtered.filter((r) => r.status === s);
                 return (
-                  <div className="rock-col" key={s}>
+                  <div
+                    className={`rock-col${dragOverCol === s ? " drag-over" : ""}`}
+                    key={s}
+                    onDragOver={(e) => { if (dragId) { e.preventDefault(); setDragOverCol(s); } }}
+                    onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOverCol((c) => (c === s ? null : c)); }}
+                    onDrop={() => {
+                      const r = (rocks || []).find((x) => x.id === dragId);
+                      if (r && r.status !== s) setStatus(dragId, s);
+                      setDragId(null); setDragOverCol(null);
+                    }}
+                  >
                     <div className="rock-col-head"><span className={`rock-dot ${STATUS_META[s].cls}`} />{STATUS_META[s].label}<span className="rock-count">{col.length}</span></div>
                     {col.map((r) => (
-                      <div className="rock-card" key={r.id}>
+                      <div
+                        className={`rock-card${dragId === r.id ? " dragging" : ""}`}
+                        key={r.id}
+                        draggable
+                        onDragStart={(e) => { setDragId(r.id); e.dataTransfer.effectAllowed = "move"; }}
+                        onDragEnd={() => { setDragId(null); setDragOverCol(null); }}
+                      >
                         <p className="rock-card-title">{r.title}</p>
                         {r.workstream_name && <span className="rock-vcb" title={`${r.vcb_title} › ${r.workstream_name}`}>↑ {r.vcb_title}</span>}
                         <div className="rock-card-foot">
@@ -179,7 +197,7 @@ export default function RocksPage() {
                         </div>
                       </div>
                     ))}
-                    {col.length === 0 && <p className="rock-col-empty">No Rocks</p>}
+                    {col.length === 0 && <p className="rock-col-empty">Drop Rocks here</p>}
                   </div>
                 );
               })}

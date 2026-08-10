@@ -90,6 +90,9 @@ class Scorecard(BaseModel):
     sort_order: int = 0
     tenant_id: UUID
     group_id: UUID | None = None
+    team_id: UUID | None = None
+    team_name: str | None = None
+    archived: bool = False
     weekly_history: list[WeeklyPoint]
     current_rag: str | None = None
     off_track_streak: int

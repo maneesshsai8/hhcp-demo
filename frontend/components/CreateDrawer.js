@@ -17,7 +17,7 @@ const TYPES = [
   { key: "issue", label: "Issue" },
 ];
 
-export default function CreateDrawer({ open, onClose, initialType = "measurable", onCreated, tenantId, initialWorkstreamId }) {
+export default function CreateDrawer({ open, onClose, initialType = "measurable", initialTitle = "", onCreated, tenantId, initialWorkstreamId }) {
   const { activeTenantId, accessibleTenants } = useAuth();
   const baseTenant = tenantId || activeTenantId;   // forced tenant (e.g. a meeting) wins
   const [type, setType] = useState(initialType);
@@ -31,8 +31,8 @@ export default function CreateDrawer({ open, onClose, initialType = "measurable"
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (open) { setType(initialType); setF({ tenant_id: baseTenant || "", workstream_id: initialWorkstreamId || "" }); setErr(""); setTypeMenu(false); setTeamMembers([]); }
-  }, [open, initialType, baseTenant, initialWorkstreamId]);
+    if (open) { setType(initialType); setF({ tenant_id: baseTenant || "", workstream_id: initialWorkstreamId || "", title: initialTitle || "" }); setErr(""); setTypeMenu(false); setTeamMembers([]); }
+  }, [open, initialType, initialTitle, baseTenant, initialWorkstreamId]);
 
   const tid = f.tenant_id || baseTenant;
   useEffect(() => {

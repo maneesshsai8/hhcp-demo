@@ -210,9 +210,25 @@ export default function ScorecardsPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [managerOpen, setManagerOpen] = useState(false);
+  const [managerGroup, setManagerGroup] = useState(null);   // group id when opened via "Add existing"
+  const [createType, setCreateType] = useState("measurable");
+  const [createTitle, setCreateTitle] = useState("");
   const [nk, setNk] = useState(BLANK);
   const [editId, setEditId] = useState(null);
   const [scoreDraft, setScoreDraft] = useState({});
+
+  // Open the shared Create drawer for a given type, optionally pre-filling the title
+  // (used by the Measurable Manager's "Create To-Do / Create Issue" row actions).
+  function openCreateFor(type = "measurable", title = "") {
+    setCreateType(type);
+    setCreateTitle(title);
+    setCreateOpen(true);
+  }
+  // Open the Measurable Manager. A groupId means "Add existing measurable to this group".
+  function openManager(groupId = null) {
+    setManagerGroup(groupId);
+    setManagerOpen(true);
+  }
 
   function load() {
     apiFetch("/scorecards").then(setKpis).catch((e) => setError(e.message));
@@ -396,6 +412,19 @@ export default function ScorecardsPage() {
     }
   }
 
+  // Drag-and-drop reorder within a group: `orderedIds` is that group's kpi_ids in
+  // their new order. We drop them back into the same slots the group occupied in
+  // the full list, then persist the whole order.
+  async function reorderGroup(orderedIds) {
+    const idSet = new Set(orderedIds);
+    let p = 0;
+    const merged = (kpis || []).map((k) => (idSet.has(k.kpi_id) ? (kpis.find((x) => x.kpi_id === orderedIds[p++])) : k));
+    setKpis(merged);
+    try {
+      await apiFetch("/scorecards/reorder", { method: "POST", body: JSON.stringify({ order: merged.map((k) => k.kpi_id) }) });
+    } catch (e) { setError(e.message); load(); }
+  }
+
   async function exportFile(kind) {
     try {
       await apiDownload(`/reports/scorecard.${kind}?tenant_id=${activeTenantId}`, `scorecard.${kind}`);
@@ -406,8 +435,15 @@ export default function ScorecardsPage() {
 
   return (
     <div className="score-page">
-      <ScoreHeader onCreate={() => setCreateOpen(true)} />
-      <CreateDrawer open={createOpen} onClose={() => setCreateOpen(false)} initialType="measurable" onCreated={() => load()} />
+      <ScoreHeader onCreate={() => openCreateFor("measurable", "")} />
+      <CreateDrawer
+        open={createOpen}
+        onClose={() => { setCreateOpen(false); setCreateType("measurable"); setCreateTitle(""); }}
+        initialType={createType}
+        initialTitle={createTitle}
+        tenantId={activeTenantId}
+        onCreated={() => load()}
+      />
       <div className="score-tabs">
         {PERIODS.map((p) => (
           <button key={p.key} className={period === p.key ? "active" : ""} onClick={() => setPeriod(p.key)}>{p.label}</button>
@@ -475,7 +511,7 @@ export default function ScorecardsPage() {
           <button className="score-icon-btn" title="Undo">↶</button>
           <button className="score-icon-btn" title="Redo">↷</button>
           {can("create") && <button className="score-outline" onClick={() => { setGroupForm({ name: "", description: "", tenant_id: activeTenantId || "" }); setGroupDrawerOpen(true); }}>⊕ New group</button>}
-          <button className="score-outline" onClick={() => setManagerOpen(true)}>Go to Measurable Manager</button>
+          <button className="score-outline" onClick={() => openManager(null)}>Go to Measurable Manager</button>
           <button className="score-icon-btn" title="More">…</button>
           <label className="score-search">
             <span>⌕</span>
@@ -511,7 +547,7 @@ export default function ScorecardsPage() {
               canCreate={can("create")}
               canDelete={can("delete")}
               openCreate={openCreate}
-              setManagerOpen={setManagerOpen}
+              openManager={openManager}
               onDeleteGroup={deleteGroup}
               move={move}
               openEdit={openEdit}
@@ -519,6 +555,10 @@ export default function ScorecardsPage() {
               scoreDraft={scoreDraft}
               setScoreDraft={setScoreDraft}
               addScore={addScore}
+              groups={groups}
+              reload={load}
+              onCreateFor={openCreateFor}
+              reorder={reorderGroup}
             />
           ))}
         </div>
@@ -549,11 +589,14 @@ export default function ScorecardsPage() {
 
       {managerOpen && (
         <MeasurableManager
-          kpis={kpis || []}
-          search={search}
-          setSearch={setSearch}
-          onClose={() => setManagerOpen(false)}
-          onEdit={(k) => { setManagerOpen(false); openEdit(k); }}
+          people={people}
+          activeTenantId={activeTenantId}
+          targetGroupId={managerGroup}
+          can={can}
+          reload={load}
+          onClose={() => { setManagerOpen(false); setManagerGroup(null); }}
+          onEdit={(k) => { setManagerOpen(false); setManagerGroup(null); openEdit(k); }}
+          onCreateFor={openCreateFor}
         />
       )}
     </div>
@@ -652,25 +695,104 @@ function TrendCard({ k, onEdit }) {
 function GridView(props) {
   const {
     kpis, columns, period, canEdit, canCreate, canDelete, openCreate,
-    setManagerOpen, move, openEdit, delKpi, scoreDraft, setScoreDraft, addScore,
-    title, group, onDeleteGroup,
+    openManager, move, openEdit, delKpi, scoreDraft, setScoreDraft, addScore,
+    title, group, onDeleteGroup, groups = [], reload, onCreateFor, reorder,
   } = props;
   const [menuOpen, setMenuOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [dragIdx, setDragIdx] = useState(null);   // row being dragged (index within this group)
+  const [overIdx, setOverIdx] = useState(null);
+
+  function onDropRow(toIdx) {
+    if (dragIdx === null || dragIdx === toIdx) { setDragIdx(null); setOverIdx(null); return; }
+    const ids = kpis.map((k) => k.kpi_id);
+    const [moved] = ids.splice(dragIdx, 1);
+    ids.splice(toIdx, 0, moved);
+    setDragIdx(null); setOverIdx(null);
+    reorder && reorder(ids);
+  }
+  const [sel, setSel] = useState(() => new Set());       // selected kpi_ids in this group
+  const [actionOpen, setActionOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);       // "Move to group" submenu
   const groupId = group ? group.id : null;
+
+  const allChecked = kpis.length > 0 && kpis.every((k) => sel.has(k.kpi_id));
+  function toggleAll() { setSel(allChecked ? new Set() : new Set(kpis.map((k) => k.kpi_id))); }
+  function toggleOne(id) { const n = new Set(sel); n.has(id) ? n.delete(id) : n.add(id); setSel(n); }
+  function closeMenus() { setActionOpen(false); setMoveOpen(false); }
+
+  // close the Select-action menu on outside click
+  useEffect(() => {
+    if (!actionOpen && !menuOpen) return;
+    function onDoc(e) { if (!e.target.closest?.(".score-menu-wrap")) { closeMenus(); setMenuOpen(false); } }
+    document.addEventListener("click", onDoc);
+    return () => document.removeEventListener("click", onDoc);
+  }, [actionOpen, menuOpen]);
+
+  async function runSel(fn) {
+    const ids = [...sel];
+    try { for (const id of ids) await fn(id); setSel(new Set()); reload && reload(); }
+    catch (e) { alert(e.message || "Action failed"); }
+    finally { closeMenus(); }
+  }
+  const setGroup = (id, gid) => apiFetch(`/scorecards/${id}/group`, { method: "PATCH", body: JSON.stringify({ group_id: gid }) });
+  function moveToGroup(gid) { runSel((id) => setGroup(id, gid)); }
+  function removeFromGroup() { runSel((id) => setGroup(id, null)); }
+  function duplicateSel() {
+    runSel(async (id) => {
+      const k = kpis.find((x) => x.kpi_id === id); if (!k) return;
+      await apiFetch("/scorecards", { method: "POST", body: JSON.stringify({
+        tenant_id: k.tenant_id, title: `${k.title} (copy)`, target_value: k.target_value,
+        green_threshold: k.green_threshold, red_threshold: k.red_threshold, direction: k.direction,
+        frequency: k.frequency, unit: k.unit, description: k.description, owner_id: k.owner_id,
+        group_id: k.group_id, team_id: k.team_id,
+      }) });
+    });
+  }
+  function createFromSel(type) {
+    const k = kpis.find((x) => x.kpi_id === [...sel][0]);
+    closeMenus();
+    onCreateFor && onCreateFor(type, k ? k.title : "");
+  }
 
   return (
     <div className="score-grid-card">
       <div className="score-grid-head">
         <h2>{title} <span>{kpis.length}</span></h2>
         <div className="score-grid-actions">
+          {sel.size > 0 && (
+            <div className="score-menu-wrap">
+              <button className="score-action-btn" onClick={() => { setActionOpen((o) => !o); setMoveOpen(false); }}>Select action ({sel.size}) ⌄</button>
+              {actionOpen && (
+                <div className="score-actions-menu left">
+                  {canEdit && (
+                    <div className="score-submenu-wrap">
+                      <button onClick={() => setMoveOpen((o) => !o)}>⤴ Move to group ›</button>
+                      {moveOpen && (
+                        <div className="score-submenu">
+                          {groups.filter((g) => g.id !== groupId).length === 0 && <span className="score-submenu-empty">No other groups</span>}
+                          {groups.filter((g) => g.id !== groupId).map((g) => (
+                            <button key={g.id} onClick={() => moveToGroup(g.id)}>{g.name}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {canCreate && <button onClick={duplicateSel}>⧉ Duplicate</button>}
+                  {canCreate && <button onClick={() => createFromSel("todo")}>☑ Create To-Do</button>}
+                  {canCreate && <button onClick={() => createFromSel("issue")}>⚑ Create Issue</button>}
+                  {canEdit && group && <button onClick={removeFromGroup}>⤺ Remove from group</button>}
+                </div>
+              )}
+            </div>
+          )}
           {canCreate && (
             <div className="score-menu-wrap">
               <button className="score-new-btn" onClick={() => setMenuOpen(!menuOpen)}>New Measurable ⌄</button>
               {menuOpen && (
                 <div className="score-new-menu">
                   <button onClick={() => { setMenuOpen(false); openCreate(period, groupId); }}><span>⊕</span>Create new Measurable</button>
-                  <button onClick={() => { setMenuOpen(false); setManagerOpen(true); }}><span>⊕</span>Add existing Measurable</button>
+                  <button onClick={() => { setMenuOpen(false); openManager(groupId); }}><span>⊕</span>Add existing Measurable</button>
                 </div>
               )}
             </div>
@@ -686,7 +808,7 @@ function GridView(props) {
         <table className="score-table">
           <thead>
             <tr>
-              <th className="check"><input type="checkbox" /></th>
+              <th className="check"><input type="checkbox" checked={allChecked} onChange={toggleAll} /></th>
               <th className="trend">View<br />Trend</th>
               <th className="title">Title</th>
               <th className="owner"></th>
@@ -705,10 +827,26 @@ function GridView(props) {
               const total = values.reduce((a, b) => a + b, 0);
               const avg = values.length ? total / values.length : 0;
               return (
-                <tr key={k.kpi_id}>
-                  <td className="check"><input type="checkbox" /></td>
+                <tr
+                  key={k.kpi_id}
+                  className={`${sel.has(k.kpi_id) ? "row-sel" : ""}${overIdx === idx && dragIdx !== null ? " row-drop" : ""}`}
+                  onDragOver={(e) => { if (dragIdx !== null) { e.preventDefault(); setOverIdx(idx); } }}
+                  onDrop={() => onDropRow(idx)}
+                >
+                  <td className="check"><input type="checkbox" checked={sel.has(k.kpi_id)} onChange={() => toggleOne(k.kpi_id)} /></td>
                   <td><span className={`trend-status ${k.current_rag || "NONE"}`}>{k.current_rag ? (k.current_rag === "GREEN" ? "↗" : "△") : "?"}</span></td>
-                  <td className="title-cell">{canEdit && <span className="drag-handle">⋮⋮</span>}<button onClick={() => openEdit(k)}>{k.title}</button></td>
+                  <td className="title-cell">
+                    {canEdit && (
+                      <span
+                        className="drag-handle"
+                        draggable
+                        title="Drag to reorder"
+                        onDragStart={(e) => { setDragIdx(idx); e.dataTransfer.effectAllowed = "move"; }}
+                        onDragEnd={() => { setDragIdx(null); setOverIdx(null); }}
+                      >⋮⋮</span>
+                    )}
+                    <button onClick={() => openEdit(k)}>{k.title}</button>
+                  </td>
                   <td><span className="owner-bubble">{initials(k.owner)}</span></td>
                   <td>{goalText(k)}</td>
                   <td>{formatValue(avg, k.unit)}</td>
@@ -868,41 +1006,197 @@ function Toggle({ label, text }) {
   );
 }
 
-function MeasurableManager({ kpis, search, setSearch, onClose, onEdit }) {
-  const rows = kpis.filter((k) => !search || k.title.toLowerCase().includes(search.toLowerCase()));
+function MeasurableManager({ people = [], activeTenantId, targetGroupId, can, reload, onClose, onEdit, onCreateFor }) {
+  const [view, setView] = useState("active");           // active | archived
+  const [teamFilter, setTeamFilter] = useState("");     // team_id | ""
+  const [personFilter, setPersonFilter] = useState(""); // owner_id | ""
+  const [search, setSearch] = useState("");
+  const [rows, setRows] = useState(null);
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [rowMenu, setRowMenu] = useState(null);         // kpi_id of the open row menu
+  const [reassignFor, setReassignFor] = useState(null); // { ids: [...] } → owner picker
+  const [busy, setBusy] = useState(false);
+
+  const archived = view === "archived";
+
+  function load() {
+    const p = new URLSearchParams();
+    if (activeTenantId) p.set("tenant_id", activeTenantId);
+    if (archived) p.set("archived", "true");
+    if (teamFilter) p.set("team_id", teamFilter);
+    setRows(null);
+    apiFetch(`/scorecards?${p.toString()}`).then(setRows).catch(() => setRows([]));
+  }
+  // reload whenever the view / team filter / workspace changes
+  useEffect(() => { setSelected(new Set()); load(); /* eslint-disable-next-line */ }, [view, teamFilter, activeTenantId]);
+
+  // close open menus on outside click
+  useEffect(() => {
+    if (!bulkOpen && rowMenu === null) return;
+    function onDoc(e) { if (!e.target.closest?.(".score-menu-wrap")) { setBulkOpen(false); setRowMenu(null); } }
+    document.addEventListener("click", onDoc);
+    return () => document.removeEventListener("click", onDoc);
+  }, [bulkOpen, rowMenu]);
+
+  const teams = useMemo(() => {
+    const m = new Map();
+    (rows || []).forEach((k) => { if (k.team_id) m.set(k.team_id, k.team_name); });
+    return [...m.entries()];
+  }, [rows]);
+
+  const visible = (rows || []).filter((k) =>
+    (!search || k.title.toLowerCase().includes(search.toLowerCase())) &&
+    (!personFilter || k.owner_id === personFilter)
+  );
+  const allChecked = visible.length > 0 && visible.every((k) => selected.has(k.kpi_id));
+  function toggleAll() { setSelected(allChecked ? new Set() : new Set(visible.map((k) => k.kpi_id))); }
+  function toggleOne(id) { const n = new Set(selected); n.has(id) ? n.delete(id) : n.add(id); setSelected(n); }
+
+  const canEdit = !can || can("edit"), canCreate = !can || can("create"), canDelete = !can || can("delete");
+  const patch = (id, body) => apiFetch(`/scorecards/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+
+  async function runOnIds(ids, fn) {
+    setBusy(true);
+    try { for (const id of ids) await fn(id); setSelected(new Set()); load(); reload && reload(); }
+    catch (e) { alert(e.message || "Action failed"); }
+    finally { setBusy(false); setBulkOpen(false); setRowMenu(null); }
+  }
+  function doArchive(ids) { runOnIds(ids, (id) => patch(id, { archived: !archived })); }
+  function doDelete(ids) {
+    if (!confirm(`Delete ${ids.length} measurable(s)? This can't be undone.`)) return;
+    runOnIds(ids, (id) => apiFetch(`/scorecards/${id}`, { method: "DELETE" }));
+  }
+  function doDuplicate(ids) {
+    runOnIds(ids, async (id) => {
+      const k = (rows || []).find((x) => x.kpi_id === id); if (!k) return;
+      await apiFetch("/scorecards", { method: "POST", body: JSON.stringify({
+        tenant_id: k.tenant_id, title: `${k.title} (copy)`, target_value: k.target_value,
+        green_threshold: k.green_threshold, red_threshold: k.red_threshold, direction: k.direction,
+        frequency: k.frequency, unit: k.unit, description: k.description, owner_id: k.owner_id,
+        group_id: k.group_id, team_id: k.team_id,
+      }) });
+    });
+  }
+  function doReassign(ids, ownerId) { setReassignFor(null); runOnIds(ids, (id) => patch(id, { owner_id: ownerId })); }
+  function doCreate(type, ids) {
+    const k = (rows || []).find((x) => x.kpi_id === ids[0]);
+    setBulkOpen(false); setRowMenu(null);
+    onCreateFor(type, k ? k.title : "");
+  }
+  // "Add existing" attaches the SELECTED measurables to the target group — a move,
+  // never a copy (the /group endpoint just sets group_id on the same row).
+  async function addExisting() {
+    if (!targetGroupId || selected.size === 0) return;
+    setBusy(true);
+    try {
+      for (const id of selected) await apiFetch(`/scorecards/${id}/group`, { method: "PATCH", body: JSON.stringify({ group_id: targetGroupId }) });
+      reload && reload(); onClose();
+    } catch (e) { alert(e.message); } finally { setBusy(false); }
+  }
+
+  function actionMenu(ids) {
+    return (
+      <div className="score-actions-menu" onClick={(e) => e.stopPropagation()}>
+        {canEdit && <button onClick={() => { setBulkOpen(false); setRowMenu(null); setReassignFor({ ids }); }}>⤺ Reassign</button>}
+        {canCreate && <button onClick={() => doDuplicate(ids)}>⧉ Duplicate</button>}
+        {canEdit && <button onClick={() => doArchive(ids)}>{archived ? "⟲ Restore" : "📦 Archive"}</button>}
+        {canCreate && <button onClick={() => doCreate("todo", ids)}>☑ Create To-Do</button>}
+        {canCreate && <button onClick={() => doCreate("issue", ids)}>⚑ Create Issue</button>}
+        {canDelete && <button className="danger" onClick={() => doDelete(ids)}>🗑 Delete</button>}
+      </div>
+    );
+  }
+
   return (
     <div className="score-manager-backdrop">
       <div className="score-manager-modal">
         <div className="score-manager-head">
           <div>
-            <h2>Weekly Measurables</h2>
-            <p>All the Weekly Measurables in your company</p>
+            <h2>Measurable Manager</h2>
+            <p>{targetGroupId ? "Select measurables to add to this group." : "All measurables used across the company to measure progress and success."}</p>
           </div>
           <label className="score-search modal-search"><span>⌕</span><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search measurables..." /></label>
         </div>
-        <button className="score-pill">Person: All <span>⌄</span></button>
-        <table className="score-manager-table">
-          <thead><tr><th><input type="checkbox" /></th><th>Owner</th><th>Title ↑</th><th>Teams ⓘ</th><th>Goal</th></tr></thead>
-          <tbody>
-            {rows.map((k) => (
-              <tr key={k.kpi_id} onDoubleClick={() => onEdit(k)}>
-                <td><input type="checkbox" /></td>
-                <td><span className="owner-bubble">{initials(k.owner)}</span></td>
-                <td>{k.title}</td>
-                <td>No team(s)</td>
-                <td>{goalText(k)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+        <div className="score-manager-filters">
+          <div className="mm-tabs">
+            <button className={!archived ? "mm-tab active" : "mm-tab"} onClick={() => setView("active")}>Active</button>
+            <button className={archived ? "mm-tab active" : "mm-tab"} onClick={() => setView("archived")}>Archived</button>
+          </div>
+          <select className="mm-select" value={personFilter} onChange={(e) => setPersonFilter(e.target.value)}>
+            <option value="">Person: All</option>
+            {people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select className="mm-select" value={teamFilter} onChange={(e) => setTeamFilter(e.target.value)}>
+            <option value="">Team: All</option>
+            {teams.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+          <span className="mm-filter-spacer" />
+          {selected.size > 0 && (
+            <div className="score-menu-wrap">
+              <button className="mm-bulk-btn" onClick={() => setBulkOpen((o) => !o)}>Select Action ({selected.size}) ⌄</button>
+              {bulkOpen && actionMenu([...selected])}
+            </div>
+          )}
+        </div>
+
+        <div className="score-manager-body">
+          <table className="score-manager-table">
+            <thead><tr>
+              <th className="check"><input type="checkbox" checked={allChecked} onChange={toggleAll} /></th>
+              <th>Title</th><th>Owner</th><th>Teams</th><th>Goal</th><th className="mm-actions-col"></th>
+            </tr></thead>
+            <tbody>
+              {rows === null && <tr><td colSpan={6} className="mm-empty">Loading…</td></tr>}
+              {rows !== null && visible.length === 0 && <tr><td colSpan={6} className="mm-empty">No measurables{archived ? " archived" : ""}.</td></tr>}
+              {visible.map((k) => (
+                <tr key={k.kpi_id} className={selected.has(k.kpi_id) ? "sel" : ""}>
+                  <td className="check"><input type="checkbox" checked={selected.has(k.kpi_id)} onChange={() => toggleOne(k.kpi_id)} /></td>
+                  <td className="mm-title"><button onClick={() => onEdit(k)}>{k.title}</button></td>
+                  <td><span className="owner-bubble" title={k.owner || ""}>{initials(k.owner)}</span></td>
+                  <td>{k.team_name || <span className="mm-muted">No team(s)</span>}</td>
+                  <td>{goalText(k)}</td>
+                  <td className="mm-rowtools">
+                    <div className="score-menu-wrap">
+                      <button className="mm-dots" title="Actions" onClick={() => setRowMenu(rowMenu === k.kpi_id ? null : k.kpi_id)}>⋯</button>
+                      {rowMenu === k.kpi_id && actionMenu([k.kpi_id])}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
         <div className="score-manager-foot">
-          <span>Items per page: <button>25⌄</button></span>
-          <span>1 - {rows.length} of {rows.length}</span>
-          <button>‹</button><button>›</button>
-          <button className="score-cancel" onClick={onClose}>Cancel</button>
-          <button className="score-save" disabled>Add</button>
+          <span>{visible.length} measurable{visible.length === 1 ? "" : "s"}{selected.size ? ` · ${selected.size} selected` : ""}</span>
+          <span className="mm-foot-spacer" />
+          <button className="score-cancel" onClick={onClose}>{targetGroupId ? "Cancel" : "Close"}</button>
+          {targetGroupId && (
+            <button className="score-save" disabled={selected.size === 0 || busy} onClick={addExisting}>
+              {busy ? "Adding…" : `Add${selected.size ? ` (${selected.size})` : ""}`}
+            </button>
+          )}
         </div>
       </div>
+
+      {reassignFor && (
+        <div className="mm-reassign-backdrop" onClick={() => setReassignFor(null)}>
+          <div className="mm-reassign" onClick={(e) => e.stopPropagation()}>
+            <h3>Reassign owner</h3>
+            <div className="mm-reassign-list">
+              {people.map((p) => (
+                <button key={p.id} onClick={() => doReassign(reassignFor.ids, p.id)}>
+                  <span className="owner-bubble">{initials(p.name)}</span>{p.name}
+                </button>
+              ))}
+              {people.length === 0 && <p className="mm-muted">No people available.</p>}
+            </div>
+            <button className="score-cancel" onClick={() => setReassignFor(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
