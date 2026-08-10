@@ -396,7 +396,82 @@ Gateway: `BE_SERVER`, `NODE_ROUTES`, `PYTHON_TARGET`, `NODE_TARGET`,
 
 ---
 
-## 14. Verification status
+## 14. Technology stack & package usage
+
+TypeScript strict everywhere; Node 20; npm workspaces. No ORM (raw SQL via
+`postgres.js`) — deliberate, because the RLS `SET LOCAL` idiom and the advanced
+Postgres features (partitioning, `pg_cron`, generated `tsvector`, `SECURITY
+DEFINER` functions) have no ORM representation.
+
+### 14.1 `apps/backend-node` (NestJS API)
+
+| Package | Ver | Used for | Replaces (Python) |
+|---|---|---|---|
+| `@nestjs/core`, `@nestjs/common` | ^10.4 | DI, modules, guards, pipes, filters | FastAPI app + `Depends` |
+| `@nestjs/platform-fastify` | ^10.4 | HTTP server (Fastify adapter) | uvicorn/Starlette |
+| `@fastify/cookie` | ^9.4 | httpOnly cookie read/write | Starlette cookies |
+| `postgres` (postgres.js) | ^3.4 | raw-SQL driver, pooling, `SET LOCAL` transaction scope, type parsers | `asyncpg` |
+| `jsonwebtoken` | ^9.0 | local HS256 JWT issue/verify | `PyJWT` |
+| `jose` | ^5.9 | Supabase ES256/JWKS + HS256 verify, `createRemoteJWKSet` | `PyJWT` + JWKS client |
+| `bcryptjs` | ^2.4 | password hashing (`$2b$` hashes port unchanged) | `bcrypt` |
+| `class-validator` + `class-transformer` | ^0.14 / ^0.5 | DTO validation/transform (`ValidationPipe`) | Pydantic |
+| `sanitize-html` | ^2.17 | announcement HTML allowlist sanitizer | stdlib `html.parser` sanitizer |
+| `exceljs` | ^4.4 | xlsx report generation | `openpyxl` |
+| `playwright` | ^1.62 | headless-Chromium HTML→PDF/PNG | Playwright (Python) |
+| `pdfkit` | ^0.19 | pure-JS PDF fallback engine | `fpdf2` |
+| `nodemailer` | ^9.0 | SMTP email (→ Mailpit) | `smtplib` |
+| `ws` | ^8.21 | meeting-room WebSocket server | Starlette WebSocket |
+| `reflect-metadata` | ^0.2 | decorator metadata (Nest requirement) | — |
+| `rxjs` | ^7.8 | Nest peer dependency | — |
+| global `fetch` / `AbortSignal.timeout` | Node 20 | Supabase refresh, Realtime, Lucid OAuth | `httpx` / `urllib` |
+| `crypto` (stdlib) | Node 20 | SHA-256 refresh-token + idempotency body hashing | `hashlib` |
+| `async_hooks` `AsyncLocalStorage` (stdlib) | Node 20 | carry the scoped tx through the request | contextvars / conn passing |
+| **dev:** `@nestjs/cli`, `@nestjs/schematics`, `typescript` ^5.6, `@types/*` | | build + types | — |
+
+### 14.2 `apps/backend-node-worker` (outbox worker)
+
+| Package | Ver | Used for |
+|---|---|---|
+| `postgres` | ^3.4 | own pool; `FOR UPDATE SKIP LOCKED` claim loop |
+| `nodemailer` | ^9.0 | announcement email fan-out (dep of the reused `mailer.ts`) |
+| **dev:** `tsx` | ^4.19 | run TS directly (no build step); resolves the shared helpers imported from `apps/backend-node/src` |
+| **dev:** `typescript`, `@types/node` | | typecheck |
+
+Reuses (by relative import, framework-agnostic) `meeting-summary.ts`,
+`mailer.ts`, `realtime-broadcast.ts`, `calendar.ts` from the API app.
+
+### 14.3 `apps/gateway`
+
+| Package | Ver | Used for |
+|---|---|---|
+| `http-proxy` | ^1.18 | HTTP + WebSocket-upgrade reverse proxy; `changeOrigin`, `xfwd` |
+| Node `http` (stdlib) | 20 | the listening server + `upgrade` event routing |
+
+Plain JavaScript (no build); the whole gateway is one ~110-line file.
+
+### 14.4 `packages/*`
+
+| Package | Deps | Used for |
+|---|---|---|
+| `contract-tests` | dev: `tsx`, `typescript`, `@types/node` | golden-response parity harness; uses global `fetch` + `Headers.getSetCookie()` — zero runtime deps |
+| `shared-types` | dev: `typescript` | framework-agnostic enums/types; emits `.d.ts` |
+| `db` | — | numbered `.sql` migrations + Python seed scripts (applied via `psql`) |
+| `api-contract` | — | `api-types.d.ts` (the REST contract) |
+
+### 14.5 External services / tooling
+
+- **PostgreSQL** — the system of record and the security model (RLS, `SECURITY
+  DEFINER` functions, declarative partitioning + `pg_partman` + `pg_cron`, BRIN,
+  generated `tsvector` + GIN/`pg_trgm`). Unchanged from the Python stack.
+- **Supabase** — Auth (JWKS/JWT) and Realtime Broadcast; optionally the managed
+  Postgres host.
+- **Mailpit** (demo SMTP catcher) — viewable email at `:54324`.
+- **Chromium** — installed on demand via `npx playwright install chromium` for the
+  full PDF/PNG report path (otherwise `pdfkit` fallback).
+
+---
+
+## 15. Verification status
 
 - `tsc` strict + `nest build` clean across all TS workspaces.
 - All 114 REST routes + `/health` + the WebSocket map 1:1 with the Python routers.

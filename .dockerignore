@@ -1,0 +1,14 @@
+# keep build contexts small and reproducible
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/venv
+**/__pycache__
+**/*.pyc
+.git
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+.DS_Store

@@ -1,0 +1,88 @@
+# HHCP Node stack — API + outbox worker + gateway (analysis §12.2).
+#
+#   docker compose up --build
+#
+# The database is EXTERNAL (same Postgres/RLS the Python backend uses). Point
+# DATABASE_URL at it — by default host.docker.internal:5432 (a Postgres on your
+# host). For the local Supabase CLI DB use port 54322; for hosted Supabase use
+# its connection string (append ?sslmode=require).
+#
+# The Python reference backend is assumed to run on the host (:8000); the gateway
+# reaches it via host.docker.internal. Set BE_SERVER=node to serve everything
+# from the Node backend and skip Python entirely.
+
+x-db-url: &db_url ${DATABASE_URL:-postgresql://hhcp_app:demo_password_local_only@host.docker.internal:5432/hhcp_demo}
+
+services:
+  backend-node:
+    build:
+      context: .
+      dockerfile: apps/backend-node/Dockerfile
+    image: hhcp-backend-node
+    environment:
+      PORT: "8001"
+      DATABASE_URL: *db_url
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
+      JWT_SECRET: ${JWT_SECRET:-demo-only-secret-do-not-use-in-production-1234567890}
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SUPABASE_JWKS_URL: ${SUPABASE_JWKS_URL:-}
+      SUPABASE_JWT_SECRET: ${SUPABASE_JWT_SECRET:-}
+      LUCID_CLIENT_ID: ${LUCID_CLIENT_ID:-}
+      LUCID_CLIENT_SECRET: ${LUCID_CLIENT_SECRET:-}
+      LUCID_REFRESH_TOKEN: ${LUCID_REFRESH_TOKEN:-}
+      LUCID_EMBED_ORIGIN: ${LUCID_EMBED_ORIGIN:-http://localhost:3002}
+      SMTP_HOST: ${SMTP_HOST:-host.docker.internal}
+      SMTP_PORT: ${SMTP_PORT:-54325}
+      SMTP_FROM: ${SMTP_FROM:-announcements@hhcp.local}
+      RATE_LIMIT: ${RATE_LIMIT:-200}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-60}
+    ports:
+      - "8001:8001"
+    extra_hosts:
+      - "host.docker.internal:host-gateway" # lets the container reach host services on Linux
+    restart: unless-stopped
+
+  backend-node-worker:
+    build:
+      context: .
+      dockerfile: apps/backend-node-worker/Dockerfile
+    image: hhcp-worker
+    environment:
+      DATABASE_URL: *db_url
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-host.docker.internal}
+      SMTP_PORT: ${SMTP_PORT:-54325}
+      SMTP_FROM: ${SMTP_FROM:-announcements@hhcp.local}
+      LUCID_EMBED_ORIGIN: ${LUCID_EMBED_ORIGIN:-http://localhost:3002}
+      GOOGLE_CALENDAR_CLIENT_ID: ${GOOGLE_CALENDAR_CLIENT_ID:-}
+      GOOGLE_CALENDAR_REFRESH_TOKEN: ${GOOGLE_CALENDAR_REFRESH_TOKEN:-}
+      MS_CALENDAR_CLIENT_ID: ${MS_CALENDAR_CLIENT_ID:-}
+      MS_CALENDAR_REFRESH_TOKEN: ${MS_CALENDAR_REFRESH_TOKEN:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - backend-node
+    restart: unless-stopped
+
+  gateway:
+    build:
+      context: .
+      dockerfile: apps/gateway/Dockerfile
+    image: hhcp-gateway
+    environment:
+      GATEWAY_PORT: "8080"
+      BE_SERVER: ${BE_SERVER:-node}
+      NODE_TARGET: http://backend-node:8001
+      PYTHON_TARGET: ${PYTHON_TARGET:-http://host.docker.internal:8000}
+      NODE_ROUTES: ${NODE_ROUTES:-}
+    ports:
+      - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - backend-node
+    restart: unless-stopped
