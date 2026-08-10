@@ -5,6 +5,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import fastifyCookie from '@fastify/cookie';
 import { AppModule } from './app.module';
 import { DetailExceptionFilter } from './common/http-exception.filter';
+import { installRateLimit } from './common/rate-limit';
 import { ConfigService } from './config/config.service';
 import { MeetingRealtime } from './realtime/realtime.gateway';
 
@@ -16,6 +17,9 @@ async function bootstrap(): Promise<void> {
 
   // httpOnly cookie support (read via request.cookies, set via reply.setCookie).
   await app.register(fastifyCookie as never);
+
+  // Rate limiting (200/60s per IP) — faithful port of middleware.py.
+  installRateLimit(app.getHttpAdapter().getInstance());
 
   // Security headers on every response — faithful port of
   // backend/app/middleware.py SecurityHeadersMiddleware. Uses setdefault

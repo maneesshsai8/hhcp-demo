@@ -67,8 +67,12 @@ rocks, issues, vcbs, seats incl. Lucid embeds, federation), Phase-4 reports
 standalone outbox [worker](../backend-node-worker), and Phase-6 meetings (dual
 state machine, optimistic locking, idempotency) + the realtime WebSocket.
 
+Cross-cutting parity is complete too: security headers, CORS, `{detail}` errors,
+and the **fixed-window rate limiter** (200/60s per IP, `429` + `Retry-After` +
+`X-RateLimit-*`) — a faithful port of `middleware.py` (`src/common/rate-limit.ts`).
+
 **Verified by:** `tsc` strict + `nest build` clean; all 114 routes mapped 1:1
-with the Python routers; boot + WebSocket-handshake smoke tests. Behavioral
-parity for the complex modules (meeting concurrency, outbox fan-out) is asserted
-from a faithful port, **not** yet proven by a golden-response contract suite —
-that harness (analysis §16) is the recommended next step.
+with the Python routers; boot + WebSocket-handshake + rate-limit + gateway
+smoke tests. A golden-response contract harness that diffs Node vs Python live
+(analysis §16) lives in [packages/contract-tests](../../packages/contract-tests);
+run it against both backends on the same seeded DB to *prove* body-level parity.
