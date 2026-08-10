@@ -74,7 +74,7 @@ const NAV_GROUPS = [
   [{ href: "/dashboard/overview", label: "My Workspace", icon: "portfolio" }],
   [
     { href: "/dashboard/scorecards", label: "Scorecard", icon: "scorecards" },
-    { href: "/dashboard/rocks", label: "Rocks", icon: "rocks" },
+    { href: "/dashboard/rocks", label: "VCBs & Rocks", icon: "vcbs" },
     { href: "/dashboard/todos", label: "To-Dos", icon: "todos" },
     { href: "/dashboard/issues", label: "Issues", icon: "issues" },
     { href: "/dashboard/meetings", label: "Meetings", icon: "meetings" },

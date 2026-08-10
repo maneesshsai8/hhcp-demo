@@ -1,0 +1,291 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>HHCP Octane — POC Technical Document</title></head><body>
+<h1>HHCP "Octane" — Business Operating System</h1>
+<p><em>Proof-of-Concept Technical Document</em></p>
+<p>A multi-tenant EOS / Traction-style "business operating system" (a purpose-built ninety.io replacement) for a private-equity fund. This document explains, module by module, what the system does, the technology and database behind it, how the data is related, and how it is deployed.</p>
+
+<h2>1. Executive summary</h2>
+<p>The platform lets a fund and its portfolio companies run the EOS toolkit — Vision, Scorecards, Rocks, To-Dos, Issues, Meetings, Accountability, Announcements — inside one system, while keeping every company's data strictly isolated. The hardest technical risk (secure multi-tenant data isolation across a Fund &rarr; Portfolio Company &rarr; Add-on hierarchy) was proven first, then the feature modules were built on top of it.</p>
+<p><strong>The one big idea:</strong> authorization is enforced by the database on every single request (PostgreSQL Row-Level Security), not by application code. This means a bug in the app cannot leak another company's data, and revoking access takes effect on the very next request.</p>
+
+<h2>2. Architecture at a glance</h2>
+<p>The system has four cooperating layers plus a realtime channel:</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Layer</th><th>Technology</th><th>Responsibility</th></tr></thead>
+<tbody>
+<tr><td>Client (browser)</td><td>Next.js 14 (React 18)</td><td>The UI. Holds no auth token in JavaScript; the login token lives in an httpOnly cookie.</td></tr>
+<tr><td>Request plane</td><td>FastAPI (Python, async) + asyncpg</td><td>Proves <em>who</em> you are, then runs plain SQL. It never decides <em>what</em> you can see.</td></tr>
+<tr><td>Data plane</td><td>PostgreSQL 16 (inside Supabase)</td><td>Decides what you can see via Row-Level Security. Single point of enforcement.</td></tr>
+<tr><td>Durable plane</td><td>Background worker (separate process)</td><td>Does slow / after-the-fact work: meeting summaries, emails, calendar sync, realtime publish — reliably, even if a request crashes.</td></tr>
+<tr><td>Realtime</td><td>Supabase Realtime (Broadcast + Presence)</td><td>Live meeting sync — who is present, and "refresh this now" signals.</td></tr>
+</tbody>
+</table>
+<p><strong>Request flow (simple):</strong></p>
+<ol>
+<li>Browser sends a request with its httpOnly cookie.</li>
+<li>FastAPI verifies the token and identifies the user (only identity, nothing more).</li>
+<li>FastAPI opens one database transaction and tells Postgres "the current user is X".</li>
+<li>The app runs ordinary SQL with <strong>no</strong> "WHERE tenant = ..." filter.</li>
+<li>Postgres automatically filters every row to only what user X may see (RLS).</li>
+<li>The result returns to the browser. Slow follow-up work is handed to the durable worker.</li>
+</ol>
+
+<h2>3. Technology stack</h2>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Area</th><th>Choice</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Frontend</td><td>Next.js 14 (App Router), React 18, plain CSS</td><td>Modern, fast, matches the proposal. Styled to look like ninety.io.</td></tr>
+<tr><td>Backend</td><td>FastAPI, Uvicorn, asyncpg (raw SQL, no ORM)</td><td>Async and fast; raw SQL keeps RLS / SECURITY DEFINER functions first-class (an ORM would hide them).</td></tr>
+<tr><td>Database</td><td>PostgreSQL 16 (via Supabase)</td><td>Row-Level Security is the product's backbone; time-series data uses native partitioning (pg_partman).</td></tr>
+<tr><td>Auth</td><td>Supabase Auth (JWT, ES256) — pluggable with a local JWT fallback</td><td>Managed sign-in; token kept out of JavaScript in an httpOnly cookie.</td></tr>
+<tr><td>Realtime</td><td>Supabase Realtime (private channels)</td><td>Live multi-user meetings without building a socket server.</td></tr>
+<tr><td>Exports</td><td>OpenPyXL (Excel), Playwright/Chromium (PDF)</td><td>One-click Excel/PDF exports of Scorecards, Rocks, Issues, To-Dos, Org chart.</td></tr>
+<tr><td>Email</td><td>SMTP (local Mailpit in the demo)</td><td>Announcement notifications are really sent.</td></tr>
+</tbody>
+</table>
+
+<h2>4. Multi-tenancy — the tenant hierarchy</h2>
+<p>Every piece of data belongs to a "tenant" (an organization). Tenants form a three-level tree:</p>
+<ul>
+<li><strong>Fund</strong> (e.g. Hidden Harbor) — the top.</li>
+<li><strong>Portfolio Company (PortCo)</strong> — each company the fund owns.</li>
+<li><strong>Add-on</strong> — a bolt-on acquisition under a PortCo.</li>
+</ul>
+<p><strong>Access cascades down.</strong> If you are granted a PortCo, you automatically get its Add-ons. A Fund Admin sees the whole portfolio (read/rollup). A PortCo manager sees only their company and cannot even discover the others exist.</p>
+<p>This tree is stored in one table (<strong>organizations</strong>) where each row points to its parent (<code>parent_tenant_id</code>). The recursive "who can this user see" logic lives in a database function, <code>user_accessible_tenants()</code>.</p>
+
+<h2>5. Platform — Authentication &amp; Authorization</h2>
+<p>This is the foundation every module depends on.</p>
+<h3>Authentication (who are you?)</h3>
+<ul>
+<li>Users sign in through Supabase Auth (email/password, Google, or Microsoft). Supabase issues a signed token.</li>
+<li>The browser hands that token to the backend, which stores it in an <strong>httpOnly cookie</strong> — so it is never readable by JavaScript (protects against token theft).</li>
+<li>On each request the backend verifies the token and maps it to an internal user record (<code>users.supabase_uid &rarr; users.id</code>). Token refresh is handled server-side.</li>
+</ul>
+<h3>Authorization (what can you see / do?)</h3>
+<p>Two layers, both in the database:</p>
+<ol>
+<li><strong>Tenant isolation (Row-Level Security):</strong> every tenant table has a policy: a row is visible only if its <code>tenant_id</code> is in <code>user_accessible_tenants(current_user)</code>. Fund admins get all tenants; everyone else gets their granted tenants plus all descendants (the cascade). No session set = zero rows (safe default-deny).</li>
+<li><strong>Within-tenant scoping:</strong> on Scorecards/Rocks/To-Dos/Issues a second rule limits what a junior role sees inside a tenant — a "team member" sees only records they own; a "manager" also sees their direct reports' records; senior roles see everything in the tenant.</li>
+</ol>
+<p><strong>Role matrix (RBAC):</strong> fund_admin / lead_partner / deal_qb / portco_management / manager can view + create + edit + delete; ops_qb / addon_management / team_member can view + create + edit; read-only roles can only view. Provisioning new companies is fund-admin only.</p>
+<p><strong>Why this is strong:</strong> because the check is in Postgres, even a mistake in the API cannot return another company's data. Revoking a grant takes effect on the <em>next</em> request — no waiting for a token to expire.</p>
+<h3>Data model (ERD)</h3>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>organizations</td><td>Tenants (Fund / PortCo / Add-on), self-referencing tree</td><td>parent_tenant_id &rarr; organizations</td></tr>
+<tr><td>users</td><td>People; is_fund_admin, is_active, reports_to, title/department</td><td>reports_to &rarr; users</td></tr>
+<tr><td>tenant_memberships</td><td>Which user has which role in which tenant (the "grant")</td><td>user_id &rarr; users, tenant_id &rarr; organizations</td></tr>
+<tr><td>refresh_tokens</td><td>Server-side session refresh (local auth mode)</td><td>user_id &rarr; users</td></tr>
+<tr><td>audit_log</td><td>Every login / create / edit / grant — the compliance trail</td><td>actor_id &rarr; users, tenant_id &rarr; organizations</td></tr>
+</tbody>
+</table>
+<p><strong>Login flow:</strong> Sign in (Supabase) &rarr; backend stores token in httpOnly cookie &rarr; each request: verify token &rarr; identify user &rarr; open transaction with "current user" set &rarr; RLS filters all queries &rarr; response. Deactivating a user or revoking a grant blocks them on their very next request.</p>
+
+<h3>5.1 How RLS, tenant scoping &amp; RBAC interlink — a worked example</h3>
+<p>These are three separate checks that <strong>stack</strong>. Every request passes through all three, in order — each answers a different question:</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Check</th><th>Question it answers</th><th>Where it lives</th></tr></thead>
+<tbody>
+<tr><td><strong>1. RLS (tenant isolation)</strong></td><td>"Which companies' rows may you touch <em>at all</em>?"</td><td>A Postgres policy on every table: a row is visible only if its <code>tenant_id</code> is in <code>user_accessible_tenants(you)</code>.</td></tr>
+<tr><td><strong>2. Tenant scoping (the cascade)</strong></td><td>"Does a grant on a parent company include its children?"</td><td>Inside <code>user_accessible_tenants()</code>: a grant on a PortCo expands to all its Add-ons (recursive walk of the org tree).</td></tr>
+<tr><td><strong>3. RBAC</strong></td><td>"Which records inside those companies, and what may you <em>do</em> to them?"</td><td>(a) A second RLS layer scopes records by ownership for junior roles; (b) the API's role matrix allows/denies the action (view / create / edit / delete).</td></tr>
+</tbody>
+</table>
+<p><strong>Cast (from the demo data):</strong> <em>Priya</em> is an <code>ops_qb</code> granted <em>Restaurant A</em> + <em>Restaurant C</em>. <em>Restaurant A</em> has an Add-on, <em>Food Truck</em>. <em>Tom</em> is a <code>team_member</code> in Restaurant C who reports to <em>Mia</em> (a <code>manager</code>).</p>
+<p><strong>Example — Priya opens the Rocks page:</strong></p>
+<ol>
+<li><strong>RLS</strong> runs <code>user_accessible_tenants(Priya)</code> &rarr; {Restaurant A, Restaurant C, <em>Food Truck</em>}. Food Truck is included automatically because it is an Add-on of Restaurant A (that is <em>tenant scoping / the cascade</em>). So Priya sees Rocks from exactly those three companies — never Restaurant B, never the Fund.</li>
+<li><strong>Within-tenant scoping:</strong> because <code>ops_qb</code> is a senior role, she sees <em>all</em> Rocks inside those companies (a <code>team_member</code> would see only their own).</li>
+<li><strong>RBAC action matrix:</strong> <code>ops_qb</code> may view / create / edit but not delete — so the UI shows no Delete button, and a delete call would be refused.</li>
+</ol>
+<p><strong>The same three checks can each block a request — at a different layer:</strong></p>
+<ul>
+<li>Priya tries to edit a Rock in <em>Restaurant B</em> (even guessing its ID): <strong>RLS blocks it</strong> — Restaurant B isn't in her accessible set, so the UPDATE matches zero rows and returns 404. The database refuses to release the row no matter what the API asks — this is why an app bug cannot leak data.</li>
+<li>Tom tries to delete a Rock he owns in Restaurant C: RLS passes (Restaurant C is his), within-tenant passes (he owns it), but the <strong>RBAC action check blocks it</strong> — a <code>team_member</code> has no delete permission &rarr; 403.</li>
+<li>Tom tries to open a co-worker's Rock he doesn't own: RLS passes (same company), but <strong>within-tenant scoping hides it</strong> (team members see only their own records; his manager Mia <em>would</em> see it as his direct report).</li>
+</ul>
+<p><strong>In one line:</strong> identity &rarr; <strong>RLS</strong> picks the <em>companies</em> &rarr; <strong>within-tenant scoping</strong> picks the <em>records</em> &rarr; the <strong>RBAC action matrix</strong> decides <em>what you may do</em>. A request only succeeds if it clears all three — and the first two are enforced by the database itself, so they cannot be bypassed by the application.</p>
+
+<h2>6. Modules</h2>
+
+<h3>6.1 Scorecard</h3>
+<p><strong>Purpose:</strong> track weekly/monthly KPIs ("measurables") with Red / Amber / Green status against a goal.</p>
+<p><strong>How it works:</strong> each measurable has a goal, a direction (higher/lower is better), and green/red thresholds. Each period you enter a value; the status is computed. Three consecutive RED weeks automatically raise an Issue (once). Measurables can be grouped into named sections and laddered to a VCB.</p>
+<p><strong>Tech &amp; DB:</strong> append-style history table; entering a value is an upsert keyed to the period. Excel/PDF export shades cells by status.</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>kpis</td><td>The measurable: title, goal, thresholds, direction, frequency, unit, owner</td><td>tenant_id &rarr; organizations, owner_id &rarr; users, group_id &rarr; kpi_groups, vcb_id &rarr; vcbs</td></tr>
+<tr><td>kpi_scores</td><td>One value per period (recorded_at + actual_value)</td><td>kpi_id &rarr; kpis, tenant_id &rarr; organizations</td></tr>
+<tr><td>kpi_groups</td><td>Named sections on the scorecard (e.g. "Sales KPIs")</td><td>tenant_id &rarr; organizations</td></tr>
+</tbody>
+</table>
+<p><strong>Flow:</strong> Create measurable &rarr; enter weekly value &rarr; status auto-computed &rarr; 3 reds in a row &rarr; Issue auto-created &rarr; export to Excel/PDF.</p>
+
+<h3>6.2 Dashboard (Portfolio rollup / Data federation)</h3>
+<p><strong>Purpose:</strong> the fund's cross-company view — totals of Rocks, Issues, To-Dos, KPIs, VCBs rolled up the Fund &rarr; PortCo &rarr; Add-on tree.</p>
+<p><strong>How it works:</strong> a "query-time fan-out" — the backend runs a handful of GROUP BY queries (still under RLS, so scoped to what the caller can see) and rolls the numbers up the hierarchy in code. It reports how many tenants were scanned and how long it took, so scaling is observable. No extra tables — it reads the live module data.</p>
+<p><strong>Tech &amp; DB:</strong> read-only aggregation across existing tables; two future scaling options are documented (event-driven from the audit log, or a nightly materialized rollup table).</p>
+<p><strong>Flow:</strong> open Dashboard &rarr; backend fans out GROUP BY per tenant &rarr; rolls up the tree &rarr; shows per-company + portfolio totals (admins see all; a PortCo user sees only their subtree).</p>
+
+<h3>6.3 Rocks (quarterly priorities)</h3>
+<p><strong>Purpose:</strong> 90-day priorities, each with an owner and a status (On-track / Off-track / Complete).</p>
+<p><strong>How it works:</strong> Rocks can have multiple assignees (the first is the primary owner) and can "ladder up" to a VCB workstream. Views: List (grouped by owner), Planning Board (by status), Blueprints (the VCB view), Archive (completed).</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>rocks</td><td>The priority: title, status, due date, description</td><td>tenant_id &rarr; organizations, owner_id &rarr; users, team_id &rarr; teams, workstream_id &rarr; workstreams</td></tr>
+<tr><td>rock_assignees</td><td>Multiple people on one Rock</td><td>rock_id &rarr; rocks, user_id &rarr; users</td></tr>
+</tbody>
+</table>
+<p><strong>Flow:</strong> Create Rock (owner, due date, optional VCB workstream) &rarr; update status as the quarter progresses &rarr; in a meeting's "Rock Review" the status can be changed live.</p>
+
+<h3>6.4 VCBs (Value-Creation Blueprints)</h3>
+<p><strong>Purpose:</strong> the PE-specific layer — an investment thesis broken into workstreams, each containing Rocks, with a live progress rollup.</p>
+<p><strong>How it works:</strong> VCB &rarr; Workstreams &rarr; Rocks. Progress % = completed Rocks / total Rocks. VCBs are edited by leadership; Rocks stay at manager level. The VCB view is folded into the Rocks module as a "Blueprints" tab, and you can add a Rock straight into a workstream.</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>vcbs</td><td>Blueprint: title, thesis, outcome, dates, status</td><td>tenant_id &rarr; organizations, created_by &rarr; users</td></tr>
+<tr><td>workstreams</td><td>Named lanes inside a VCB</td><td>vcb_id &rarr; vcbs, tenant_id &rarr; organizations</td></tr>
+<tr><td>(rocks)</td><td>Link up via rocks.workstream_id</td><td>workstream_id &rarr; workstreams</td></tr>
+</tbody>
+</table>
+<p><strong>Flow:</strong> Create VCB &rarr; add workstreams &rarr; add Rocks to each workstream &rarr; progress bar updates automatically as Rocks complete.</p>
+
+<h3>6.5 To-Dos</h3>
+<p><strong>Purpose:</strong> short-term (7-day) action items with owner, due date, and priority.</p>
+<p><strong>How it works:</strong> Team vs Private tabs (a private to-do is only visible to its owner, enforced in the database), priority, weekly "carry-forward" logging of overdue items, completion notes, and completion-rate stats. To-Dos can be created from an Issue or a Scorecard.</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>todos</td><td>Task: title, due date, priority, is_private, status, source</td><td>tenant_id &rarr; organizations, owner_id &rarr; users, team_id &rarr; teams, vcb_id &rarr; vcbs, issue_id &rarr; issues</td></tr>
+<tr><td>carry_forward_log</td><td>Record of overdue items carried to next week</td><td>todo_id &rarr; todos, actor_id &rarr; users</td></tr>
+</tbody>
+</table>
+<p><strong>Flow:</strong> Create To-Do (Team or Private) &rarr; check off when done (with an optional note) &rarr; overdue items flagged &rarr; weekly carry-forward.</p>
+
+<h3>6.6 Issues (IDS list)</h3>
+<p><strong>Purpose:</strong> the Identify–Discuss–Solve list of things to work through.</p>
+<p><strong>How it works:</strong> Short-Term / Long-Term / Resolved tabs, drag-to-rank priority, owner, category, priority, link to a VCB, resolve-with-note. Resolving is a checkbox; an "…" menu offers Create-To-Do / Resolve / Delete.</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>issues</td><td>Issue: title, status, term (short/long), priority, category, rank, resolution note</td><td>tenant_id &rarr; organizations, owner_id &rarr; users, created_by &rarr; users, team_id &rarr; teams, vcb_id &rarr; vcbs</td></tr>
+</tbody>
+</table>
+<p><strong>Flow:</strong> Raise Issue (short or long term) &rarr; rank by dragging &rarr; discuss in a meeting &rarr; resolve with a note (or spin off a To-Do). Scorecard reds auto-raise Issues here.</p>
+
+<h3>6.7 Meetings (Level-10 runner)</h3>
+<p><strong>Purpose:</strong> run a structured, timed EOS meeting live and keep a history.</p>
+<p><strong>How it works:</strong> a timed agenda (Segue, Scorecard, Rock Review, VCB Review, Headlines, To-Do List, IDS, Conclude). Each section shows the tenant's <em>real</em> Scorecard/Rocks/To-Dos/Issues data and lets you act on it live (change a Rock's status, tick a To-Do, raise an Issue). Multi-user presence + live sync via Supabase Realtime. On finish it saves attendance, a per-user rating, and an auto-generated summary.</p>
+<p><strong>Tech highlight — reliability:</strong> completing a meeting writes the change and an "event" in the <em>same</em> database transaction (a transactional outbox). A separate background worker then generates the summary, sends notifications, and publishes the realtime update — so nothing is lost even if a request crashes. Meeting state uses optimistic concurrency (a version number), returning a 409 if two people change it at once; the client simply resyncs.</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>meetings</td><td>The meeting: agenda, status, timers, summary, rating</td><td>tenant_id &rarr; organizations, team_id &rarr; teams, created_by &rarr; users</td></tr>
+<tr><td>meeting_agenda_items</td><td>Per-segment timer + state (normalized agenda)</td><td>meeting_id &rarr; meetings</td></tr>
+<tr><td>meeting_attendance</td><td>Who attended</td><td>meeting_id &rarr; meetings, user_id &rarr; users</td></tr>
+<tr><td>meeting_ratings</td><td>Per-user 1–10 rating</td><td>meeting_id &rarr; meetings, user_id &rarr; users</td></tr>
+<tr><td>agenda_templates</td><td>Custom agendas</td><td>tenant_id &rarr; organizations</td></tr>
+<tr><td>meeting_calendar_links</td><td>Google/Outlook sync status</td><td>meeting_id &rarr; meetings</td></tr>
+<tr><td>meeting_outbox</td><td>Durable event queue (infrastructure table, no tenant RLS)</td><td>—</td></tr>
+</tbody>
+</table>
+<p><strong>Flow:</strong> Start meeting &rarr; work each timed section (acting on live data) &rarr; finish &rarr; (outbox) &rarr; worker builds summary + notifies + publishes &rarr; summary saved to history.</p>
+
+<h3>6.8 User Management &amp; Teams</h3>
+<p><strong>Purpose:</strong> the fund-admin console — provision companies, manage people, grant access, build teams and the accountability chart.</p>
+<p><strong>How it works:</strong> employee directory (title/department/reports-to/active), CSV bulk import, deactivation = instant access revocation, multi-company access grants, teams with members, the Accountability Chart (a draggable seat tree with GWC), and a live audit-log viewer. A read-only "Fund Viewer" role can see the fund dashboard but not change anything.</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>users</td><td>People + profile + flags (admin/viewer/active)</td><td>reports_to &rarr; users</td></tr>
+<tr><td>tenant_memberships</td><td>Access grants (role per tenant)</td><td>user_id &rarr; users, tenant_id &rarr; organizations</td></tr>
+<tr><td>teams / team_members</td><td>Teams and their members</td><td>tenant_id &rarr; organizations, user_id &rarr; users</td></tr>
+<tr><td>seats / seat_holders</td><td>Accountability chart seats + who fills them (GWC)</td><td>parent_seat_id &rarr; seats, user_id &rarr; users</td></tr>
+<tr><td>audit_log</td><td>Compliance trail of admin actions</td><td>actor_id &rarr; users</td></tr>
+</tbody>
+</table>
+<p><strong>Flow:</strong> Admin creates a PortCo &rarr; adds users &rarr; grants roles (one or many companies at once) &rarr; builds teams &rarr; deactivating a user cuts them off immediately.</p>
+
+<h3>6.9 Announcements (Headlines)</h3>
+<p><strong>Purpose:</strong> a company communication feed with acknowledgements.</p>
+<p><strong>How it works:</strong> posts have a category, an audience (whole tenant or a team), optional pin, and optional "requires acknowledgment". Reactions and comments are supported. Posting fans out in-app + email notifications (email really sends), and leadership sees an ack tracker (who read / acknowledged). The fan-out runs in the background worker.</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Table</th><th>Stores</th><th>Related to</th></tr></thead>
+<tbody>
+<tr><td>announcements</td><td>The post: title, body, category, audience, pin, requires_ack</td><td>tenant_id &rarr; organizations, author_id &rarr; users, team_id &rarr; teams</td></tr>
+<tr><td>announcement_receipts</td><td>Per-user read / acknowledge timestamps</td><td>announcement_id &rarr; announcements, user_id &rarr; users</td></tr>
+<tr><td>announcement_reactions / _comments</td><td>Emoji reactions and comments</td><td>announcement_id &rarr; announcements, user_id &rarr; users</td></tr>
+<tr><td>notification_deliveries</td><td>Per-channel delivery status (in-app / email / push)</td><td>announcement_id &rarr; announcements, user_id &rarr; users</td></tr>
+</tbody>
+</table>
+<p><strong>Flow:</strong> Leader posts (audience + require-ack) &rarr; (outbox) &rarr; worker snapshots recipients, records in-app + email deliveries, sends email &rarr; people read / acknowledge / react &rarr; leader sees ack %.</p>
+
+<h3>6.10 Vision (V/TO)</h3>
+<p><strong>Purpose:</strong> a per-company Mission / Vision / Core Values page. Leadership edits; everyone in the company reads. Stored in <code>vision_documents</code> (one row per tenant).</p>
+
+<h2>7. Deployment plan</h2>
+<h3>Current (POC / local)</h3>
+<ul>
+<li>PostgreSQL + Auth + Realtime run locally via the Supabase CLI + Docker.</li>
+<li>Backend: Uvicorn on port 8000. A second process runs the background worker.</li>
+<li>Frontend: Next.js dev server on port 3002.</li>
+</ul>
+<h3>Target (production)</h3>
+<p><strong>Important — Vercel is for the frontend only.</strong> Vercel hosts the Next.js app, but it does <em>not</em> run our Python/FastAPI backend. Vercel's functions are short-lived Node/Edge runtimes; our backend is a <em>long-running</em> async Python service that keeps a database connection pool open and also runs a persistent background worker. So the backend needs its own place to run — its own "API compute".</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Component</th><th>Where it runs</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Frontend (Next.js)</td><td>Vercel</td><td>Static + server-rendered pages on a global CDN. Frontend only.</td></tr>
+<tr><td>API compute (FastAPI)</td><td>A container platform (see below)</td><td>Long-running Uvicorn service, stateless, scales horizontally.</td></tr>
+<tr><td>Background worker</td><td>Same image, separate always-on process</td><td>Drains the outbox with "FOR UPDATE SKIP LOCKED" — safe to run several.</td></tr>
+<tr><td>Database + Auth + Realtime</td><td>Supabase (managed)</td><td>Same Postgres/RLS design; managed backups, auth, realtime.</td></tr>
+<tr><td>Email</td><td>Provider (e.g. SES / SendGrid)</td><td>Mailpit in the demo &rarr; a real provider in production.</td></tr>
+</tbody>
+</table>
+<h4>API compute — where to run the FastAPI backend (options)</h4>
+<table border="1" cellpadding="6" cellspacing="0">
+<thead><tr><th>Option</th><th>Good for</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td>Google Cloud Run</td><td>Serverless containers, pay-per-use, auto-scale</td><td>Great fit for Uvicorn. Run the worker as a second always-on service (min-instances = 1) — not scale-to-zero.</td></tr>
+<tr><td>Render</td><td>Simplest split of "Web Service" (API) + "Background Worker"</td><td>The worker is a first-class service type; least setup.</td></tr>
+<tr><td>Railway / Fly.io</td><td>Easy container hosting, global regions</td><td>Fly can place the API near users; both run the worker as a separate process/machine.</td></tr>
+<tr><td>AWS ECS Fargate / App Runner</td><td>Enterprise, VPC-native</td><td>Keeps database traffic private inside a VPC; more setup but maximum control.</td></tr>
+</tbody>
+</table>
+<p><strong>Recommendation:</strong> run the API on <strong>Cloud Run or Render</strong> (stateless, auto-scaling) plus a <strong>dedicated always-on worker</strong> — the frontend stays on Vercel, and the database/auth/realtime stay on Supabase.</p>
+
+<h3>Performance &amp; scale</h3>
+<ul>
+<li><strong>Horizontal scaling:</strong> the API is stateless (the session lives in the cookie, not in server memory), so you scale by adding instances behind a load balancer — no sticky sessions needed.</li>
+<li><strong>Connection pooling:</strong> each API instance keeps an asyncpg pool; put Supabase's connection pooler (Supavisor / PgBouncer) in front so many instances don't exhaust Postgres connections.</li>
+<li><strong>RLS is cheap:</strong> <code>user_accessible_tenants()</code> is a STABLE function (evaluated once per statement, not per row), <code>tenant_id</code> is indexed on every table, and the cascade walks a tiny org tree — so the security layer adds negligible latency.</li>
+<li><strong>Time-series volume:</strong> the high-growth tables (<code>kpi_scores</code>, <code>notification_deliveries</code>) are partitioned (pg_partman + BRIN indexes), so they stay fast as history accumulates.</li>
+<li><strong>Slow work is decoupled:</strong> summaries, emails and calendar sync run in the background worker via the outbox, so request latency stays low; scale throughput by adding more workers (SKIP LOCKED keeps them from double-processing).</li>
+<li><strong>Realtime is offloaded:</strong> live meeting sync uses managed Supabase Realtime — there is no socket server for us to scale.</li>
+<li><strong>Frontend speed:</strong> Vercel's CDN + Next.js caching give fast global loads.</li>
+<li><strong>One thing to change for multi-instance:</strong> the demo's rate limiter is in-process (per instance). In production, move it to Redis or the API gateway so the limit is shared across all instances.</li>
+</ul>
+
+<h3>Database migrations &amp; safety gates</h3>
+<ul>
+<li><strong>migrate.py</strong> — a forward-only migration runner over numbered SQL files, with checksum drift detection (you cannot silently edit applied history) and a guard on non-idempotent one-shot migrations.</li>
+<li><strong>check_isolation.py</strong> — a CI gate that inspects the live schema and fails the build if any table is not tenant-isolated (tenant_id + RLS + policy), unless it is on a small, reviewed global allowlist. This permanently closes the "developer forgot to enable RLS on a new table" gap.</li>
+<li><strong>Recommended CI:</strong> on a fresh database, run <code>migrate.py apply</code> then <code>check_isolation.py</code>; a non-zero exit blocks merge.</li>
+</ul>
+<h3>Security &amp; isolation guarantees (summary)</h3>
+<ul>
+<li>Every tenant table is protected by Row-Level Security — isolation is enforced by the database, not trusted to app code.</li>
+<li>The login token is never exposed to JavaScript (httpOnly cookie).</li>
+<li>Realtime uses private, tenant-scoped channels — a user from another company cannot subscribe to a meeting they can't access.</li>
+<li>The app's database role is not a superuser and cannot bypass RLS.</li>
+<li>A CI conformance gate mechanically enforces that every new table stays isolated.</li>
+</ul>
+
+<h2>8. How it all connects (one-paragraph recap)</h2>
+<p>Next.js talks to FastAPI over cookies. FastAPI proves identity, then runs plain SQL inside one transaction that tells Postgres who the user is; Postgres Row-Level Security returns only that user's tenants (cascaded down the Fund &rarr; PortCo &rarr; Add-on tree). Each feature module (Scorecard, Rocks, VCBs, To-Dos, Issues, Meetings, Users, Announcements, Vision, Dashboard) is a set of tenant-scoped tables plus endpoints; anything slow or "must-not-be-lost" (meeting summaries, emails, realtime) is handed to a durable background worker via a transactional outbox. The result is a secure, multi-tenant EOS platform that is simple to reason about: the database is the single source of truth for both data and permissions.</p>
+</body></html>

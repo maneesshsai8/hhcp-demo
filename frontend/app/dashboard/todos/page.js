@@ -25,6 +25,7 @@ export default function TodosPage() {
   const [f, setF] = useState(EMPTY);
 
   // view + filters
+  const [tab, setTab] = useState("team");         // 'team' (shared) | 'private'
   const [mine, setMine] = useState(false);
   const [win, setWin] = useState("all");          // 'all' | '7' | '90'
   const [statusF, setStatusF] = useState("all");  // 'all' | 'open' | 'done'
@@ -98,7 +99,10 @@ export default function TodosPage() {
     catch (e) { setError(e.message); }
   }
 
-  const overdueCount = (todos || []).filter((t) => t.is_overdue).length;
+  // Team tab = shared to-dos; Private tab = your private ones (backend only
+  // returns a private to-do to its owner).
+  const visible = (todos || []).filter((t) => (tab === "private" ? t.is_private : !t.is_private));
+  const overdueCount = visible.filter((t) => t.is_overdue).length;
 
   return (
     <div className="mod-page">
@@ -108,7 +112,6 @@ export default function TodosPage() {
           <p className="mod-sub">Create, assign, and track deadlines for critical tasks.</p>
         </div>
         <div className="mod-head-actions">
-          {activeTenantId && can("edit") && <button className="mod-ghost" onClick={carryForward} title="Flag overdue items for next week">↻ Carry forward</button>}
           {activeTenantId && todos && todos.length > 0 && (
             <>
               <button className="mod-ghost" onClick={() => apiDownload(`/reports/todos.xlsx?tenant_id=${activeTenantId}`, "todos.xlsx").catch((e) => setError(e.message))}>Export Excel</button>
@@ -120,8 +123,8 @@ export default function TodosPage() {
       </div>
 
       <div className="mod-tabs">
-        <button className={!mine ? "active" : ""} onClick={() => setMine(false)}>All To-Dos</button>
-        <button className={mine ? "active" : ""} onClick={() => setMine(true)}>My To-Dos</button>
+        <button className={tab === "team" ? "active" : ""} onClick={() => setTab("team")}>Team</button>
+        <button className={tab === "private" ? "active" : ""} onClick={() => setTab("private")}>Private</button>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -161,16 +164,16 @@ export default function TodosPage() {
       )}
 
       {!todos && !error && <p className="loading-line">Loading to-dos…</p>}
-      {todos && todos.length === 0 && (
-        <div className="empty-state"><p className="display">No To-Dos here</p><p>Nothing matches these filters.</p></div>
+      {todos && visible.length === 0 && (
+        <div className="empty-state"><p className="display">{tab === "private" ? "No private To-Dos" : "No team To-Dos"}</p><p>{tab === "private" ? "Private to-dos are visible only to you." : "Nothing matches these filters."}</p></div>
       )}
 
-      {todos && todos.length > 0 && (
+      {todos && visible.length > 0 && (
         <div className="mod-list-card">
-          <div className="mod-list-head"><h3>{mine ? "My To-Dos" : "Team To-Dos"} <span className="rock-count">{todos.length}</span></h3></div>
+          <div className="mod-list-head"><h3>{tab === "private" ? "Private To-Dos" : "Team To-Dos"} <span className="rock-count">{visible.length}</span></h3></div>
           <div className="todo-table">
             <div className="todo-thead"><span></span><span>Title</span><span>Due By</span><span>Owner</span><span></span></div>
-            {todos.map((t) => (
+            {visible.map((t) => (
               <TodoRow key={t.id} t={t} canEdit={can("edit")} canDelete={can("delete")}
                 toggleDone={toggleDone} setPriority={setPriority} del={del} />
             ))}

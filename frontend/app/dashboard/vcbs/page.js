@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import CreateDrawer from "@/components/CreateDrawer";
 
 const THESES = ["Margin expansion", "Geographic expansion", "Tuck-in M&A", "Digital transformation", "Operational excellence"];
 const STATUS_LABEL = { on_track: "On-Track", off_track: "Off-Track", complete: "Complete" };
@@ -20,6 +21,7 @@ export default function VcbsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [people, setPeople] = useState([]);
   const [wsDraft, setWsDraft] = useState({});         // vcb_id -> new workstream name
+  const [createRockWs, setCreateRockWs] = useState(null); // {tenantId, workstreamId} → open Create Rock
 
   const isLeader = LEADERSHIP.has(activeRole) || !activeTenantId; // admin rollup counts as leader
 
@@ -206,7 +208,9 @@ export default function VcbsPage() {
                     {canEdit && (
                       <tr className="add-row">
                         <td colSpan={4}>
-                          <AddRockInline onAdd={(title) => addRock(v.tenant_id, w.id, title)} />
+                          <button className="add-rock-btn" onClick={() => setCreateRockWs({ tenantId: v.tenant_id, workstreamId: w.id })}>
+                            + add a rock to this workstream
+                          </button>
                         </td>
                       </tr>
                     )}
@@ -226,17 +230,15 @@ export default function VcbsPage() {
           </div>
         );
       })()}
-    </div>
-  );
-}
 
-function AddRockInline({ onAdd }) {
-  const [t, setT] = useState("");
-  return (
-    <div className="add-rock-inline">
-      <input className="mini-input" placeholder="+ add a rock to this workstream" value={t}
-        onChange={(e) => setT(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") { onAdd(t); setT(""); } }} />
-      <button className="btn-mini" onClick={() => { onAdd(t); setT(""); }}>Add</button>
+      <CreateDrawer
+        open={!!createRockWs}
+        onClose={() => setCreateRockWs(null)}
+        tenantId={createRockWs?.tenantId}
+        initialType="rock"
+        initialWorkstreamId={createRockWs?.workstreamId}
+        onCreated={() => load()}
+      />
     </div>
   );
 }

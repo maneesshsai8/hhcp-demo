@@ -80,13 +80,15 @@ async def list_todos(
               AND (NOT $6 OR (t.status = 'open' AND t.due_date < CURRENT_DATE))
               AND ($7::int IS NULL OR (t.due_date IS NOT NULL
                      AND t.due_date <= CURRENT_DATE + ($7::int || ' days')::interval))
+              -- privacy: a private to-do is only visible to its owner
+              AND (NOT t.is_private OR t.owner_id = $8::uuid)
             ORDER BY (t.status = 'done'),
                      (t.due_date IS NULL),
                      t.due_date,
                      CASE t.priority WHEN 'high' THEN 0 WHEN 'medium' THEN 1 ELSE 2 END,
                      t.created_at DESC
             """,
-            target_tenant, me, owner_id, status, team_id, overdue_only, days,
+            target_tenant, me, owner_id, status, team_id, overdue_only, days, current_user.user_id,
         )
     return [_shape(r) for r in rows]
 

@@ -13,7 +13,6 @@ const PRIO_LABEL = { low: "Low", medium: "Medium", high: "High" };
 export default function IssuesPage() {
   const { activeTenantId, can } = useAuth();
   const [issues, setIssues] = useState(null);
-  const [stats, setStats] = useState(null);
   const [teams, setTeams] = useState([]);
   const [people, setPeople] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);   // members of the team picked in the modal
@@ -23,15 +22,16 @@ export default function IssuesPage() {
   const [open, setOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [f, setF] = useState(EMPTY);
-  const [tab, setTab] = useState("open");        // 'open' | 'solved'
+  const [tab, setTab] = useState("short");       // 'short' | 'long' | 'solved'
   const [teamF, setTeamF] = useState("");
   const dragIdx = useRef(null);
 
   const load = useCallback(() => {
-    const p = new URLSearchParams({ status: tab });
+    const p = new URLSearchParams();
+    if (tab === "solved") p.set("status", "solved");
+    else { p.set("status", "open"); p.set("term", tab); }   // short | long
     if (teamF) p.set("team_id", teamF);
     apiFetch(`/issues?${p.toString()}`).then(setIssues).catch((e) => setError(e.message));
-    apiFetch("/issues/stats").then(setStats).catch(() => setStats(null));
   }, [tab, teamF]);
 
   useEffect(() => {
@@ -108,7 +108,8 @@ export default function IssuesPage() {
       .catch((e) => { setError(e.message); load(); });
   }
 
-  const draggable = tab === "open" && can("edit") && !teamF;
+  const draggable = tab !== "solved" && can("edit") && !teamF;
+  const tabLabel = { short: "Short-Term", long: "Long-Term", solved: "Resolved" }[tab];
 
   return (
     <div className="mod-page">
@@ -129,8 +130,9 @@ export default function IssuesPage() {
       </div>
 
       <div className="mod-tabs">
-        <button className={tab === "open" ? "active" : ""} onClick={() => setTab("open")}>Short-Term{stats ? ` (${stats.open})` : ""}</button>
-        <button className={tab === "solved" ? "active" : ""} onClick={() => setTab("solved")}>Resolved{stats ? ` (${stats.solved})` : ""}</button>
+        <button className={tab === "short" ? "active" : ""} onClick={() => setTab("short")}>Short-Term</button>
+        <button className={tab === "long" ? "active" : ""} onClick={() => setTab("long")}>Long-Term</button>
+        <button className={tab === "solved" ? "active" : ""} onClick={() => setTab("solved")}>Resolved</button>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
@@ -141,32 +143,17 @@ export default function IssuesPage() {
           <option value="">Team: Company-wide</option>
           {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
-        {tab === "open" && draggable && <span className="drag-hint">↕ drag to rank priority</span>}
+        {draggable && <span className="drag-hint">↕ drag to rank priority</span>}
       </div>
-
-      {stats && (stats.solved > 0 || stats.velocity.length > 0) && (
-        <div className="mod-list-card stats-card">
-          <p className="mini-label">Resolution velocity {stats.avg_days_to_resolve != null ? `· avg ${stats.avg_days_to_resolve}d to resolve` : ""}</p>
-          <div className="velocity-row">
-            {stats.velocity.length === 0 && <span className="card-meta">No issues resolved in the last 8 weeks.</span>}
-            {stats.velocity.map((v) => (
-              <div className="velocity-bar-wrap" key={v.week} title={`Week of ${v.week}: ${v.resolved} resolved`}>
-                <div className="velocity-bar" style={{ height: `${10 + v.resolved * 18}px` }} />
-                <span className="velocity-label">{v.week.slice(5)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {!issues && !error && <p className="loading-line">Loading issues…</p>}
       {issues && issues.length === 0 && (
-        <div className="empty-state"><p className="display">{tab === "open" ? "No open issues" : "No resolved issues"}</p><p>{tab === "open" ? "Nothing raised here yet — that’s a good sign." : "Resolved issues will be archived here with notes."}</p></div>
+        <div className="empty-state"><p className="display">{tab === "solved" ? "No resolved issues" : `No ${tabLabel.toLowerCase()} issues`}</p><p>{tab === "solved" ? "Resolved issues will be archived here with notes." : "Nothing raised here yet — that’s a good sign."}</p></div>
       )}
 
       {issues && issues.length > 0 && (
         <div className="mod-list-card">
-          <div className="mod-list-head"><h3>{tab === "open" ? "Short-Term" : "Resolved"} <span className="rock-count">{issues.length}</span></h3></div>
+          <div className="mod-list-head"><h3>{tabLabel} <span className="rock-count">{issues.length}</span></h3></div>
           <div className="issue-table">
             <div className="issue-thead"><span></span><span></span><span>Title</span><span>Created</span><span>Owner</span><span></span></div>
             {issues.map((i, idx) => (

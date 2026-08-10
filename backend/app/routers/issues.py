@@ -18,6 +18,7 @@ class NewIssueRequest(BaseModel):
     priority: str | None = None       # 'low' | 'medium' | 'high'
     category: str | None = None
     vcb_id: str | None = None
+    term: str = "short"               # 'short' | 'long'
 
 
 class UpdateIssueRequest(BaseModel):
@@ -42,6 +43,7 @@ async def list_issues(
     tenant_id: str | None = Query(default=None),
     team_id: str | None = Query(default=None),
     status: str | None = Query(default=None),          # 'open' | 'solved'
+    term: str | None = Query(default=None),            # 'short' | 'long'
     include_archived: bool = Query(default=False),
     current_user: CurrentUser = Depends(get_current_user),
 ):
@@ -52,7 +54,7 @@ async def list_issues(
         rows = await conn.fetch(
             """
             SELECT i.id, i.title, i.description, i.status, i.tenant_id, i.created_at, i.priority,
-                   i.category, i.sort_order, i.resolution_note, i.solved_at, i.archived,
+                   i.category, i.sort_order, i.resolution_note, i.solved_at, i.archived, i.term,
                    i.owner_id, i.team_id, i.vcb_id,
                    u.name AS created_by_name, o.name AS owner_name,
                    t.name AS team_name, v.title AS vcb_title
@@ -65,11 +67,12 @@ async def list_issues(
               AND ($2::uuid IS NULL OR i.team_id = $2::uuid)
               AND ($3::text IS NULL OR i.status = $3::text)
               AND ($4 OR NOT i.archived)
+              AND ($5::text IS NULL OR i.term = $5::text)
             ORDER BY (i.status = 'solved'),
                      CASE WHEN i.status = 'open' THEN i.sort_order END,
                      i.solved_at DESC NULLS LAST
             """,
-            target_tenant, team_id, status, include_archived,
+            target_tenant, team_id, status, include_archived, term,
         )
     return [dict(r) for r in rows]
 
@@ -122,12 +125,13 @@ async def create_issue(body: NewIssueRequest, current_user: CurrentUser = Depend
         row = await conn.fetchrow(
             """
             INSERT INTO issues (tenant_id, title, description, created_by, owner_id, team_id,
-                                priority, category, vcb_id, sort_order)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 0)
+                                priority, category, vcb_id, term, sort_order)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0)
             RETURNING id, title, status, tenant_id
             """,
             body.tenant_id, body.title, body.description, current_user.user_id,
             body.owner_id, body.team_id, body.priority, body.category, body.vcb_id,
+            body.term if body.term in ("short", "long") else "short",
         )
     return dict(row)
 

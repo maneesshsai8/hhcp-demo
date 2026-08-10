@@ -2841,3 +2841,7 @@ h1, h2, h3, .display {
 
 /* meeting run-line: let the title take available width beside the status pill */
 .run-line-main { flex: 1; min-width: 0; }
+
+/* Blueprint: "add a rock to this workstream" → opens Create Rock drawer */
+.add-rock-btn { border: none; background: none; color: var(--brand-orange); font: inherit; font-weight: 600; cursor: pointer; padding: 8px 4px; }
+.add-rock-btn:hover { text-decoration: underline; }

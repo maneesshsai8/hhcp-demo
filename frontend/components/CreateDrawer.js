@@ -17,7 +17,7 @@ const TYPES = [
   { key: "issue", label: "Issue" },
 ];
 
-export default function CreateDrawer({ open, onClose, initialType = "measurable", onCreated, tenantId }) {
+export default function CreateDrawer({ open, onClose, initialType = "measurable", onCreated, tenantId, initialWorkstreamId }) {
   const { activeTenantId, accessibleTenants } = useAuth();
   const baseTenant = tenantId || activeTenantId;   // forced tenant (e.g. a meeting) wins
   const [type, setType] = useState(initialType);
@@ -31,8 +31,8 @@ export default function CreateDrawer({ open, onClose, initialType = "measurable"
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (open) { setType(initialType); setF({ tenant_id: baseTenant || "" }); setErr(""); setTypeMenu(false); setTeamMembers([]); }
-  }, [open, initialType, baseTenant]);
+    if (open) { setType(initialType); setF({ tenant_id: baseTenant || "", workstream_id: initialWorkstreamId || "" }); setErr(""); setTypeMenu(false); setTeamMembers([]); }
+  }, [open, initialType, baseTenant, initialWorkstreamId]);
 
   const tid = f.tenant_id || baseTenant;
   useEffect(() => {
@@ -87,7 +87,8 @@ export default function CreateDrawer({ open, onClose, initialType = "measurable"
       } else {
         await apiFetch("/issues", { method: "POST", body: JSON.stringify({
           tenant_id: tid, title: f.title, priority: f.priority || null, category: f.category || null,
-          team_id: f.team_id || null, owner_id: f.owner_id || null, vcb_id: f.vcb_id || null, description: f.description || null,
+          team_id: f.team_id || null, owner_id: f.owner_id || null, vcb_id: f.vcb_id || null,
+          description: f.description || null, term: f.term || "short",
         })});
       }
       onCreated?.(type);
@@ -217,13 +218,19 @@ export default function CreateDrawer({ open, onClose, initialType = "measurable"
             <>
               {teamOwnerFields}
               <div className="drawer-two">
+                <label className="drawer-field">Interval
+                  <select value={f.term || "short"} onChange={(e) => up({ term: e.target.value })}>
+                    <option value="short">Short-Term</option>
+                    <option value="long">Long-Term</option>
+                  </select>
+                </label>
                 <label className="drawer-field">Priority
                   <select value={f.priority || ""} onChange={(e) => up({ priority: e.target.value })}>
                     <option value="">None</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option>
                   </select>
                 </label>
-                <label className="drawer-field">Category<input value={f.category || ""} onChange={(e) => up({ category: e.target.value })} placeholder="e.g. People" /></label>
               </div>
+              <label className="drawer-field">Category<input value={f.category || ""} onChange={(e) => up({ category: e.target.value })} placeholder="e.g. People, Process" /></label>
             </>
           )}
 

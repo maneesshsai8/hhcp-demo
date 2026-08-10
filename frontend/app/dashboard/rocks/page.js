@@ -16,7 +16,7 @@ const STATUS_META = {
 };
 const initials = (n) => (n || "?").split(" ").filter(Boolean).map((s) => s[0]).slice(0, 2).join("").toUpperCase();
 const progressFor = (s) => (s === "complete" ? 100 : s === "on_track" ? 60 : 20);
-const ROCK_TABS = [["list", "List"], ["board", "Planning Board"], ["blueprints", "Blueprints"], ["archive", "Archive"]];
+const ROCK_TABS = [["blueprints", "Blueprints"], ["list", "List"], ["board", "Planning Board"], ["archive", "Archive"]];
 
 export default function RocksPage() {
   const { activeTenantId, can } = useAuth();
@@ -29,7 +29,7 @@ export default function RocksPage() {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(EMPTY);
   const [createOpen, setCreateOpen] = useState(false);
-  const [tab, setTab] = useState("list");         // list | board | blueprints | archive
+  const [tab, setTab] = useState("blueprints");    // blueprints | list | board | archive
   const [q, setQ] = useState("");
   const [statusF, setStatusF] = useState("all");
   const [ownerF, setOwnerF] = useState("all");
@@ -99,8 +99,8 @@ export default function RocksPage() {
     <div className="mod-page">
       <div className="mod-head">
         <div>
-          <h1 className="mod-title">Rocks</h1>
-          <p className="mod-sub">Set and track quarterly goals to help your team consistently hit their targets.</p>
+          <h1 className="mod-title">VCBs &amp; Rocks</h1>
+          <p className="mod-sub">Value-Creation Blueprints and the quarterly Rocks that deliver them.</p>
         </div>
         <div className="mod-head-actions">
           {activeTenantId && list.length > 0 && (
