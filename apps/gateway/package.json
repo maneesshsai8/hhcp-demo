@@ -1,0 +1,13 @@
+{
+  "name": "@hhcp/gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin reverse proxy implementing the BE_SERVER / NODE_ROUTES strangler-fig switch (analysis §9). Routes each API path-prefix to the Python (:8000) or Node (:8001) backend behind one stable URL, so the frontend never sees a cutover and any prefix can be rolled back instantly.",
+  "scripts": {
+    "start": "node src/index.js",
+    "start:dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  }
+}

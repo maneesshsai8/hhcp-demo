@@ -1,0 +1,19 @@
+{
+  "name": "@hhcp/backend-node-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone outbox worker (analysis §12) — a SEPARATE process from the API that drains meeting_outbox with FOR UPDATE SKIP LOCKED, regenerates post-meeting summaries, fans out announcements, and syncs calendar events. Faithful port of backend/app/workers/. Reuses the framework-agnostic helpers from @hhcp/backend-node.",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "drain": "tsx src/drain.ts"
+  },
+  "dependencies": {
+    "postgres": "^3.4.5",
+    "nodemailer": "^9.0.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "@types/node": "^20.19.0"
+  }
+}

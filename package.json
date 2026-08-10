@@ -1,0 +1,16 @@
+{
+  "name": "hhcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HHCP monorepo — Next.js frontend, FastAPI (reference) backend, and the NestJS/Fastify Node port plus gateway + outbox worker. See docs/BACKEND-MIGRATION-ANALYSIS.md.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "backend-node": "npm start -w @hhcp/backend-node",
+    "worker": "npm start -w @hhcp/backend-node-worker",
+    "gateway": "npm start -w @hhcp/gateway"
+  }
+}

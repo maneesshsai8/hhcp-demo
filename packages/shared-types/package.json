@@ -1,0 +1,14 @@
+{
+  "name": "@hhcp/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DTOs / enums shared between the Node backend, worker, and (eventually) the frontend — kept framework-agnostic so all consumers agree on role names, RAG statuses, and event types.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}

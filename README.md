@@ -56,8 +56,8 @@ sudo -u postgres psql -c "CREATE DATABASE hhcp_demo;"
 sudo -u postgres psql -c "CREATE USER hhcp_app WITH PASSWORD 'demo_password_local_only';"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE hhcp_demo TO hhcp_app;"
 sudo -u postgres psql -d hhcp_demo -c "GRANT ALL ON SCHEMA public TO hhcp_app;"
-sudo -u postgres psql -d hhcp_demo -f database/01_schema.sql
-sudo -u postgres python3 database/seed.py
+sudo -u postgres psql -d hhcp_demo -f packages/db/migrations/01_schema.sql
+sudo -u postgres python3 packages/db/seeds/seed.py
 ```
 
 ### 2. Backend

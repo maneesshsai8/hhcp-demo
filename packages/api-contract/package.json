@@ -1,0 +1,7 @@
+{
+  "name": "@hhcp/api-contract",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The authoritative REST contract both backends must satisfy: the OpenAPI-derived api-types.d.ts. The frontend and the parity gate depend on this file; regenerating it from either backend and diffing against this copy is the 'zero frontend changes' check (analysis §10.1, §16).",
+  "types": "api-types.d.ts"
+}

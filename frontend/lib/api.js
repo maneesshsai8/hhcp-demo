@@ -1,6 +1,10 @@
 import { AUTH_PROVIDER, supabase } from "./supabase";
 
-const API_BASE = "http://localhost:8000";
+// Which backend to talk to. Defaults to the Python backend (:8000); set
+// NEXT_PUBLIC_API_BASE=http://localhost:8001 in .env.local to use the Node
+// (NestJS) backend. This is the single env-driven switch from the migration
+// plan (docs/BACKEND-MIGRATION-ANALYSIS.md §9) — same contracts either way.
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://localhost:8000";
 
 /*
  Two auth providers, chosen by NEXT_PUBLIC_AUTH_PROVIDER:

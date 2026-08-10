@@ -1,0 +1,9 @@
+{
+  "name": "@hhcp/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Single source of truth for the HHCP PostgreSQL schema: the numbered .sql migrations (RLS, SECURITY DEFINER functions, partitioning + pg_partman + pg_cron, BRIN, generated tsvector) plus the Python seed/bootstrap scripts. Shared by BOTH backends — neither owns the schema.",
+  "scripts": {
+    "apply": "for f in migrations/*.sql; do psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 -f \"$f\"; done"
+  }
+}
