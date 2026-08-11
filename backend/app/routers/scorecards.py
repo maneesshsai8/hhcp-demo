@@ -54,6 +54,7 @@ class UpdateKpiRequest(BaseModel):
     group_id: str | None = None                # explicitly sent = move group (null = default)
     team_id: str | None = None                 # explicitly sent = (re)assign team (null = no team)
     archived: bool | None = None               # explicitly sent = archive / restore
+    vcb_id: str | None = None                  # explicitly sent = link/unlink to a VCB (null = unlink)
 
 
 class ReorderRequest(BaseModel):
@@ -124,10 +125,11 @@ async def fetch_scorecards(conn, target_tenant, frequency=None, archived=False, 
         SELECT k.id, k.title, k.description, k.frequency, k.direction,
                k.target_value, k.green_threshold, k.red_threshold, k.comparison_operator,
                k.unit, k.sort_order, u.name AS owner_name, k.owner_id, k.tenant_id, k.group_id,
-               k.archived, k.team_id, t.name AS team_name
+               k.archived, k.team_id, t.name AS team_name, k.vcb_id, vc.title AS vcb_title
         FROM kpis k
         LEFT JOIN users u ON u.id = k.owner_id
         LEFT JOIN teams t ON t.id = k.team_id
+        LEFT JOIN vcbs vc ON vc.id = k.vcb_id
         WHERE ($1::uuid IS NULL OR k.tenant_id = $1::uuid)
           AND ($2::text IS NULL OR k.frequency = $2::text)
           AND k.archived = $3::bool
@@ -193,6 +195,8 @@ async def fetch_scorecards(conn, target_tenant, frequency=None, archived=False, 
             "team_id": str(k["team_id"]) if k["team_id"] else None,
             "team_name": k["team_name"],
             "archived": k["archived"],
+            "vcb_id": str(k["vcb_id"]) if k["vcb_id"] else None,
+            "vcb_title": k["vcb_title"],
             "weekly_history": list(reversed(weekly)),  # chronological for charting
             "current_rag": weekly[0]["rag"] if weekly else None,
             "off_track_streak": red_streak,
@@ -269,6 +273,8 @@ async def update_kpi(kpi_id: str, body: UpdateKpiRequest, current_user: CurrentU
             await conn.execute("UPDATE kpis SET team_id = $2 WHERE id = $1", kpi_id, body.team_id)
         if "archived" in body.model_fields_set:
             await conn.execute("UPDATE kpis SET archived = $2 WHERE id = $1", kpi_id, body.archived)
+        if "vcb_id" in body.model_fields_set:
+            await conn.execute("UPDATE kpis SET vcb_id = $2 WHERE id = $1", kpi_id, body.vcb_id)
         await audit.log(conn, current_user.user_id, "scorecard.kpi_edit", entity_type="kpi",
                         entity_id=kpi_id, tenant_id=str(row["tenant_id"]), detail=row["title"])
     return {"id": str(row["id"]), "title": row["title"]}

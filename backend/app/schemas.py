@@ -93,6 +93,8 @@ class Scorecard(BaseModel):
     team_id: UUID | None = None
     team_name: str | None = None
     archived: bool = False
+    vcb_id: UUID | None = None
+    vcb_title: str | None = None
     weekly_history: list[WeeklyPoint]
     current_rag: str | None = None
     off_track_streak: int

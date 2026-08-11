@@ -32,6 +32,19 @@ class UpdateRockRequest(BaseModel):
     workstream_id: str | None = None
 
 
+class NewMilestoneRequest(BaseModel):
+    title: str
+    due_date: date | None = None
+    owner_id: str | None = None
+
+
+class UpdateMilestoneRequest(BaseModel):
+    title: str | None = None
+    done: bool | None = None
+    due_date: date | None = None
+    owner_id: str | None = None
+
+
 async def _sync_assignees(conn, rock_id, tenant_id, assignee_ids):
     """Replace a rock's assignee set. Returns the primary (first) assignee id."""
     await conn.execute("DELETE FROM rock_assignees WHERE rock_id = $1", rock_id)
@@ -60,7 +73,18 @@ async def list_rocks(tenant_id: str | None = Query(default=None), current_user: 
                      (SELECT json_agg(json_build_object('id', ra.user_id, 'name', au.name) ORDER BY au.name)
                       FROM rock_assignees ra JOIN users au ON au.id = ra.user_id
                       WHERE ra.rock_id = r.id),
-                     '[]'::json) AS assignees
+                     '[]'::json) AS assignees,
+                   (SELECT count(*) FROM rock_milestones m WHERE m.rock_id = r.id) AS milestone_total,
+                   (SELECT count(*) FROM rock_milestones m WHERE m.rock_id = r.id AND m.done) AS milestone_done,
+                   COALESCE(
+                     (SELECT json_agg(json_build_object(
+                                'id', m.id, 'title', m.title, 'done', m.done,
+                                'owner_id', m.owner_id, 'owner_name', mu.name,
+                                'due_date', m.due_date, 'sort_order', m.sort_order)
+                             ORDER BY m.sort_order, m.created_at)
+                      FROM rock_milestones m LEFT JOIN users mu ON mu.id = m.owner_id
+                      WHERE m.rock_id = r.id),
+                     '[]'::json) AS milestones
             FROM rocks r
             LEFT JOIN users u ON u.id = r.owner_id
             LEFT JOIN teams t ON t.id = r.team_id
@@ -72,10 +96,11 @@ async def list_rocks(tenant_id: str | None = Query(default=None), current_user: 
             target_tenant,
         )
     out = []
+    import json
     for r in rows:
         d = dict(r)
-        import json
         d["assignees"] = json.loads(d["assignees"]) if isinstance(d["assignees"], str) else d["assignees"]
+        d["milestones"] = json.loads(d["milestones"]) if isinstance(d["milestones"], str) else d["milestones"]
         out.append(d)
     return out
 
@@ -145,4 +170,61 @@ async def delete_rock(rock_id: str, current_user: CurrentUser = Depends(get_curr
     async with get_scoped_connection(current_user.user_id) as conn:
         await require_row_permission(conn, current_user.user_id, "rocks", rock_id, "delete")
         result = await conn.execute("DELETE FROM rocks WHERE id = $1", rock_id)
+    return {"deleted": result}
+
+
+# ---------------------------------------------------------------------------
+# Rock Milestones — checkable sub-goals with an owner + due date (ninety.io).
+# The routes live under /rocks/… ; /rocks/milestones/{id} is two segments so it
+# never collides with /rocks/{rock_id}.
+# ---------------------------------------------------------------------------
+@router.post("/{rock_id}/milestones")
+async def add_milestone(rock_id: str, body: NewMilestoneRequest,
+                        current_user: CurrentUser = Depends(get_current_user)):
+    async with get_scoped_connection(current_user.user_id) as conn:
+        # RLS makes this None if the rock isn't visible → 404 (never a cross-tenant write).
+        rock = await conn.fetchrow("SELECT tenant_id FROM rocks WHERE id = $1", rock_id)
+        if rock is None:
+            raise HTTPException(status_code=404, detail="Rock not found or not accessible")
+        tenant_id = rock["tenant_id"]
+        await require_permission(conn, current_user.user_id, str(tenant_id), "create")
+        next_order = await conn.fetchval(
+            "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM rock_milestones WHERE rock_id = $1", rock_id)
+        row = await conn.fetchrow(
+            """
+            INSERT INTO rock_milestones (rock_id, tenant_id, title, owner_id, due_date, sort_order)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id, title, done, owner_id, due_date, sort_order
+            """,
+            rock_id, tenant_id, body.title, body.owner_id or current_user.user_id,
+            body.due_date, next_order,
+        )
+    return dict(row)
+
+
+@router.patch("/milestones/{milestone_id}")
+async def update_milestone(milestone_id: str, body: UpdateMilestoneRequest,
+                           current_user: CurrentUser = Depends(get_current_user)):
+    async with get_scoped_connection(current_user.user_id) as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE rock_milestones SET
+                title    = COALESCE($2, title),
+                done     = COALESCE($3, done),
+                due_date = COALESCE($4, due_date),
+                owner_id = COALESCE($5, owner_id)
+            WHERE id = $1
+            RETURNING id, title, done, owner_id, due_date, sort_order
+            """,
+            milestone_id, body.title, body.done, body.due_date, body.owner_id,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="Milestone not found or not accessible")
+    return dict(row)
+
+
+@router.delete("/milestones/{milestone_id}")
+async def delete_milestone(milestone_id: str, current_user: CurrentUser = Depends(get_current_user)):
+    async with get_scoped_connection(current_user.user_id) as conn:
+        result = await conn.execute("DELETE FROM rock_milestones WHERE id = $1", milestone_id)
     return {"deleted": result}
