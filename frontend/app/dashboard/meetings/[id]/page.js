@@ -69,7 +69,7 @@ function SectionData({ kind, tenantId, refetchKey, onChanged }) {
   if (!rows) return <p className="loading-line">Loading…</p>;
 
   if (kind === "scorecard") return (
-    <table className="history-table"><thead><tr><th>KPI</th><th>Owner</th><th>Target</th><th>This week</th></tr></thead>
+    <table className="history-table"><thead><tr><th>Measurable</th><th>Owner</th><th>Target</th><th>This week</th></tr></thead>
       <tbody>{rows.map((k) => {
         const latest = k.weekly_history[k.weekly_history.length - 1];
         return <tr key={k.kpi_id}><td>{k.title}</td><td>{k.owner || "—"}</td><td>{k.comparison_operator} {k.target_value} {k.unit}</td>

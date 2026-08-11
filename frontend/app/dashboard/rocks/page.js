@@ -95,7 +95,7 @@ export default function RocksPage() {
   const groupKeys = Object.keys(groups).sort((a, b) => (a === "Company Rocks" ? -1 : b === "Company Rocks" ? 1 : a.localeCompare(b)));
   const archived = filtered.filter((r) => r.status === "complete");
 
-  const rowProps = { canDelete: can("delete"), setStatus, delRock };
+  const rowProps = { canDelete: can("delete"), canCreate: can("create"), setStatus, delRock, reload: load };
 
   return (
     <div className="mod-page">
@@ -262,24 +262,77 @@ export default function RocksPage() {
   );
 }
 
-function RockRow({ r, canDelete, setStatus, delRock }) {
+function RockRow({ r, canDelete, canCreate = true, setStatus, delRock, reload }) {
   const sm = STATUS_META[r.status] || STATUS_META.on_track;
+  const [expanded, setExpanded] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const milestones = r.milestones || [];
+  const total = r.milestone_total || 0;
+  const done = r.milestone_done || 0;
+  // real progress from milestones; fall back to the status heuristic when a rock has none
+  const pct = total > 0 ? Math.round((done / total) * 100) : progressFor(r.status);
+
+  async function toggleM(m) {
+    try { await apiFetch(`/rocks/milestones/${m.id}`, { method: "PATCH", body: JSON.stringify({ done: !m.done }) }); reload && reload(); }
+    catch (e) { alert(e.message); }
+  }
+  async function addM() {
+    const title = newTitle.trim();
+    if (!title) return;
+    setBusy(true);
+    try { await apiFetch(`/rocks/${r.id}/milestones`, { method: "POST", body: JSON.stringify({ title }) }); setNewTitle(""); reload && reload(); }
+    catch (e) { alert(e.message); }
+    finally { setBusy(false); }
+  }
+  async function delM(m) {
+    try { await apiFetch(`/rocks/milestones/${m.id}`, { method: "DELETE" }); reload && reload(); }
+    catch (e) { alert(e.message); }
+  }
+
   return (
-    <div className="rock-row">
-      <div className="rock-cell">
-        <StatusPill value={r.status} onChange={(v) => setStatus(r.id, v)} />
+    <div className="rock-row-wrap">
+      <div className="rock-row">
+        <div className="rock-cell">
+          <StatusPill value={r.status} onChange={(v) => setStatus(r.id, v)} />
+        </div>
+        <div className="rock-cell rock-title-cell">
+          <button className="rock-expand" title={expanded ? "Hide milestones" : "Show milestones"} onClick={() => setExpanded((e) => !e)}>{expanded ? "▾" : "▸"}</button>
+          <span className="rock-title">{r.title}</span>
+          {r.workstream_name && <span className="rock-vcb" title={`${r.vcb_title} › ${r.workstream_name}`}>↑ {r.vcb_title}</span>}
+          {r.description && <span className="rock-desc">{r.description}</span>}
+        </div>
+        <div className="rock-cell">
+          <button className="rock-ms-progress" onClick={() => setExpanded((e) => !e)} title={total ? `${done} of ${total} milestones done` : "Add milestones"}>
+            <div className="rock-progress-track"><span style={{ width: `${pct}%` }} /></div>
+            <span className="rock-ms-count">{total ? `${done}/${total}` : "+ add"}</span>
+          </button>
+        </div>
+        <div className="rock-cell"><span className="owner-bubble" title={r.owner_name || "Unassigned"}>{initials(r.owner_name)}</span></div>
+        <div className="rock-cell rock-due">{r.due_date || "—"}</div>
+        <div className="rock-cell rock-row-actions">{canDelete && <button title="Delete" onClick={() => delRock(r.id)}>🗑</button>}</div>
       </div>
-      <div className="rock-cell rock-title-cell">
-        <span className="rock-title">{r.title}</span>
-        {r.workstream_name && <span className="rock-vcb" title={`${r.vcb_title} › ${r.workstream_name}`}>↑ {r.vcb_title}</span>}
-        {r.description && <span className="rock-desc">{r.description}</span>}
-      </div>
-      <div className="rock-cell">
-        <div className="rock-progress-track" title={sm.label}><span style={{ width: `${progressFor(r.status)}%` }} /></div>
-      </div>
-      <div className="rock-cell"><span className="owner-bubble" title={r.owner_name || "Unassigned"}>{initials(r.owner_name)}</span></div>
-      <div className="rock-cell rock-due">{r.due_date || "—"}</div>
-      <div className="rock-cell rock-row-actions">{canDelete && <button title="Delete" onClick={() => delRock(r.id)}>🗑</button>}</div>
+
+      {expanded && (
+        <div className="rock-ms-panel">
+          {milestones.map((m) => (
+            <div className={`rock-ms${m.done ? " done" : ""}`} key={m.id}>
+              <input type="checkbox" checked={m.done} onChange={() => toggleM(m)} />
+              <span className="rock-ms-title">{m.title}</span>
+              <span className="owner-bubble sm" title={m.owner_name || "Unassigned"}>{initials(m.owner_name)}</span>
+              <span className="rock-ms-due">{m.due_date || "—"}</span>
+              {canDelete && <button className="rock-ms-del" title="Delete milestone" onClick={() => delM(m)}>✕</button>}
+            </div>
+          ))}
+          {milestones.length === 0 && <p className="rock-ms-empty">No milestones yet.</p>}
+          {canCreate && (
+            <div className="rock-ms-add">
+              <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") addM(); }} placeholder="Add a milestone…" />
+              <button disabled={!newTitle.trim() || busy} onClick={addM}>{busy ? "Adding…" : "+ Add Milestone"}</button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

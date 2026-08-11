@@ -44,7 +44,7 @@ export default function DashboardPage() {
       <div className="page-head-row">
         <div>
           <h1 className="page-title display">My Workspace</h1>
-          <p className="page-sub">{scopeLabel} operating view across Rocks, To-Dos, Issues, KPIs, and value creation work.</p>
+          <p className="page-sub">{scopeLabel} operating view across Rocks, To-Dos, Issues, Measurables, and value creation work.</p>
         </div>
         <div className="head-actions">
           <button className="btn-secondary" onClick={load} disabled={busy}>{busy ? "Running…" : "↻ Refresh"}</button>
@@ -68,7 +68,7 @@ export default function DashboardPage() {
             <SummaryCard label="Rocks" main={`${ft.rocks.complete}/${ft.rocks.total}`} sub={`${data.fund_rock_completion_pct}% complete · ${ft.rocks.off_track} off-track`} />
             <SummaryCard label="Issues" main={ft.issues.open} sub={`open · ${ft.issues.solved} resolved`} />
             <SummaryCard label="To-Dos" main={ft.todos.overdue} sub={`overdue · ${ft.todos.done}/${ft.todos.total} done`} />
-            <SummaryCard label="KPIs tracked" main={ft.kpis.count} sub={scopeLabel.toLowerCase()} />
+            <SummaryCard label="Measurables tracked" main={ft.kpis.count} sub={scopeLabel.toLowerCase()} />
             <SummaryCard label="VCBs" main={ft.vcbs.count} sub={`${ft.vcbs.rock_total ? Math.round(ft.vcbs.rock_done / ft.vcbs.rock_total * 100) : 0}% rocks done`} />
           </div>
 
@@ -78,7 +78,7 @@ export default function DashboardPage() {
               <div style={{ overflowX: "auto" }}>
                 <table className="admin-table fed-table">
                   <thead><tr>
-                    <th>Tenant</th><th>Rocks (✓/total)</th><th>Off-track</th><th>Issues open</th><th>To-Dos overdue</th><th>KPIs</th><th>Rock completion</th>
+                    <th>Tenant</th><th>Rocks (✓/total)</th><th>Off-track</th><th>Issues open</th><th>To-Dos overdue</th><th>Measurables</th><th>Rock completion</th>
                   </tr></thead>
                   <tbody>
                     {rows.map((t) => {

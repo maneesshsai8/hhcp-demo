@@ -22,14 +22,31 @@ export default function VcbsPage() {
   const [people, setPeople] = useState([]);
   const [wsDraft, setWsDraft] = useState({});         // vcb_id -> new workstream name
   const [createRockWs, setCreateRockWs] = useState(null); // {tenantId, workstreamId} → open Create Rock
+  const [measurables, setMeasurables] = useState([]);  // all active measurables (for linking to VCBs)
+  const [linkPickerVcb, setLinkPickerVcb] = useState(null); // which VCB's "Link Measurable" picker is open
 
   const isLeader = LEADERSHIP.has(activeRole) || !activeTenantId; // admin rollup counts as leader
 
+  function loadMeasurables() {
+    apiFetch("/scorecards").then(setMeasurables).catch(() => setMeasurables([]));
+  }
   function load() {
     const q = showArchived ? "?include_archived=true" : "";
     apiFetch(`/vcbs${q}`).then(setVcbs).catch((e) => setError(e.message));
+    loadMeasurables();
   }
   useEffect(() => { setVcbs(null); load(); apiFetch(`/directory${activeTenantId ? `?tenant_id=${activeTenantId}` : ""}`).then(setPeople).catch(() => {}); /* eslint-disable-next-line */ }, [activeTenantId, showArchived]);
+
+  async function linkMeasurable(kpiId, vcbId) {
+    try { await apiFetch(`/scorecards/${kpiId}`, { method: "PATCH", body: JSON.stringify({ vcb_id: vcbId }) }); loadMeasurables(); }
+    catch (e) { setError(e.message); }
+  }
+  async function unlinkMeasurable(kpiId) {
+    try { await apiFetch(`/scorecards/${kpiId}`, { method: "PATCH", body: JSON.stringify({ vcb_id: null }) }); loadMeasurables(); }
+    catch (e) { setError(e.message); }
+  }
+  const latestVal = (m) => { const h = m.weekly_history || []; return h.length ? h[h.length - 1].actual_value : null; };
+  const ragClass = (rag) => (rag === "GREEN" ? "ok" : rag === "RED" ? "bad" : "warn");
 
   async function createVcb(e) {
     e.preventDefault();
@@ -176,6 +193,47 @@ export default function VcbsPage() {
                 </div>
               )}
             </div>
+
+            {/* Linked Measurables — map existing measurables onto this VCB */}
+            {(() => {
+              const linked = measurables.filter((m) => m.vcb_id === v.id);
+              const linkable = measurables.filter((m) => !m.vcb_id && m.tenant_id === v.tenant_id);
+              return (
+                <div className="vcb-measurables">
+                  <div className="vcb-meas-head">
+                    <span className="mini-label">Linked Measurables</span>
+                    {canEdit && (
+                      <button className="btn-mini ghost" onClick={() => setLinkPickerVcb(linkPickerVcb === v.id ? null : v.id)}>
+                        + Link Measurable
+                      </button>
+                    )}
+                  </div>
+                  <div className="vcb-meas-chips">
+                    {linked.map((m) => {
+                      const lv = latestVal(m);
+                      return (
+                        <span key={m.kpi_id} className={`meas-chip ${ragClass(m.current_rag)}`}>
+                          <span className="meas-chip-title">{m.title}</span>
+                          <span className="meas-chip-val">{lv ?? "—"} / {m.target_value}</span>
+                          {canEdit && <button className="meas-chip-x" title="Unlink" onClick={() => unlinkMeasurable(m.kpi_id)}>✕</button>}
+                        </span>
+                      );
+                    })}
+                    {linked.length === 0 && <span className="muted">No measurables linked yet.</span>}
+                  </div>
+                  {canEdit && linkPickerVcb === v.id && (
+                    <div className="meas-picker">
+                      {linkable.length === 0 && <p className="muted">No unlinked measurables in this workspace.</p>}
+                      {linkable.map((m) => (
+                        <button key={m.kpi_id} className="meas-picker-item" onClick={() => { linkMeasurable(m.kpi_id, v.id); setLinkPickerVcb(null); }}>
+                          <span>{m.title}</span><span className="muted">goal {m.target_value}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* spreadsheet-style grid: workstream -> rocks */}
             {v.workstreams.map((w) => (

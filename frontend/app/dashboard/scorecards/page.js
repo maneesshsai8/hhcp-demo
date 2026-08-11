@@ -60,10 +60,10 @@ function FilterPill({ id, label, open, setOpen, active, children }) {
 }
 
 const PERIOD_META = {
-  weekly: { title: "Weekly KPIs", range: "Last 13 Weeks", view: "Week", count: 13, kind: "week" },
-  monthly: { title: "Monthly KPIs", range: "Last 13 Months", view: "Month", count: 13, kind: "month" },
-  quarterly: { title: "Quarterly KPIs", range: "Last 13 Quarters", view: "Quarter", count: 6, kind: "quarter" },
-  annual: { title: "Annual KPIs", range: "Last 5 Years", view: "Year", count: 5, kind: "year" },
+  weekly: { title: "Weekly Measurables", range: "Last 13 Weeks", view: "Week", count: 13, kind: "week" },
+  monthly: { title: "Monthly Measurables", range: "Last 13 Months", view: "Month", count: 13, kind: "month" },
+  quarterly: { title: "Quarterly Measurables", range: "Last 13 Quarters", view: "Quarter", count: 6, kind: "quarter" },
+  annual: { title: "Annual Measurables", range: "Last 5 Years", view: "Year", count: 5, kind: "year" },
 };
 
 function formatValue(value, unit) {
@@ -900,7 +900,7 @@ function GroupDrawer({ f, setF, onSubmit, onClose, tenants = [], activeTenantId 
           <div><button onClick={onClose}>×</button></div>
         </div>
         <form onSubmit={onSubmit}>
-          <label className="drawer-field">Name<input value={f.name} onChange={(e) => up({ name: e.target.value })} placeholder="e.g. Sales KPIs" required autoFocus /></label>
+          <label className="drawer-field">Name<input value={f.name} onChange={(e) => up({ name: e.target.value })} placeholder="e.g. Sales Measurables" required autoFocus /></label>
           {needsWorkspace && (
             <label className="drawer-field">Workspace
               <select value={f.tenant_id || ""} onChange={(e) => up({ tenant_id: e.target.value })} required>
@@ -948,7 +948,7 @@ function KpiDrawer({ f, setF, people, groups = [], onSubmit, onClose, mode }) {
           </label>
           <label className="drawer-field">Group
             <select value={f.group_id} onChange={(e) => up({ group_id: e.target.value })}>
-              <option value="">Default ({f.frequency === "monthly" ? "Monthly" : "Weekly"} KPIs)</option>
+              <option value="">Default ({f.frequency === "monthly" ? "Monthly" : "Weekly"} Measurables)</option>
               {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
           </label>

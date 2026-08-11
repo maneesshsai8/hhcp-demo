@@ -427,6 +427,39 @@ button, input, select { font-family: inherit; font-size: inherit; }
 .progress-track.sm { display: inline-block; width: 90px; height: 6px; vertical-align: middle; margin-right: 6px; }
 .progress-fill { height: 100%; background: var(--on-track, #2E7D5B); border-radius: 999px; transition: width .3s; }
 .vcb-drill { margin-top: 16px; }
+
+/* ---- Linked Measurables on a VCB ---- */
+.vcb-measurables { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 14px; }
+.vcb-meas-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.vcb-meas-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.meas-chip {
+  display: inline-flex; align-items: center; gap: 8px;
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 5px 6px 5px 12px; font-size: 12px; background: var(--surface);
+}
+.meas-chip .meas-chip-title { font-weight: 600; color: var(--ink); }
+.meas-chip .meas-chip-val { font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.meas-chip.ok  { background: var(--on-track-bg);  border-color: #bfe2cf; }
+.meas-chip.ok  .meas-chip-val { color: var(--on-track); font-weight: 600; }
+.meas-chip.bad { background: var(--off-track-bg); border-color: #f0cac6; }
+.meas-chip.bad .meas-chip-val { color: var(--off-track); font-weight: 600; }
+.meas-chip.warn { background: #fff6e6; border-color: #f0dca6; }
+.meas-chip-x {
+  border: none; background: rgba(0,0,0,.06); color: #666; cursor: pointer;
+  width: 18px; height: 18px; border-radius: 50%; font-size: 10px; line-height: 1; padding: 0;
+}
+.meas-chip-x:hover { background: var(--off-track); color: #fff; }
+.meas-picker {
+  margin-top: 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); max-height: 240px; overflow-y: auto; padding: 4px;
+}
+.meas-picker-item {
+  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  border: none; background: none; text-align: left; cursor: pointer;
+  padding: 8px 10px; border-radius: 6px; font-size: 13px;
+}
+.meas-picker-item:hover { background: var(--paper); }
+
 .ws-block { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 12px; }
 .ws-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
 .ws-name { font-weight: 600; color: var(--navy-deep); }
@@ -2852,6 +2885,53 @@ h1, h2, h3, .display {
 .rock-desc { font-size: 12px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rock-progress-track { height: 7px; border-radius: 999px; background: var(--line); overflow: hidden; }
 .rock-progress-track span { display: block; height: 100%; background: var(--on-track); border-radius: 999px; }
+
+/* ---- Rock milestones (expandable) ---- */
+.rock-row-wrap { display: block; }
+.rock-expand {
+  border: none; background: none; cursor: pointer; color: var(--ink-soft);
+  font-size: 11px; margin-right: 6px; padding: 2px; line-height: 1;
+}
+.rock-expand:hover { color: var(--ink); }
+.rock-ms-progress {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  border: none; background: none; cursor: pointer; padding: 0; text-align: left;
+}
+.rock-ms-progress .rock-progress-track { flex: 1; }
+.rock-ms-count { font-size: 12px; color: var(--ink-soft); min-width: 34px; }
+
+.rock-ms-panel {
+  padding: 6px 20px 12px 64px;                 /* indent under the Title column */
+  background: var(--paper);
+  border-bottom: 1px solid var(--line-soft);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.rock-ms {
+  display: grid;
+  grid-template-columns: 20px minmax(0,1fr) 28px 90px 24px;
+  align-items: center; gap: 10px;
+  padding: 5px 0;
+}
+.rock-ms input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--on-track); }
+.rock-ms-title { font-size: 13px; color: var(--ink); }
+.rock-ms.done .rock-ms-title { text-decoration: line-through; color: var(--ink-soft); }
+.rock-ms-due { font-size: 12px; color: var(--ink-soft); }
+.rock-ms-del { border: none; background: none; cursor: pointer; color: #b9b9b9; font-size: 13px; }
+.rock-ms-del:hover { color: var(--off-track); }
+.rock-ms-empty { font-size: 12px; color: var(--ink-soft); margin: 4px 0; }
+.owner-bubble.sm { width: 22px; height: 22px; font-size: 9px; }
+
+.rock-ms-add { display: flex; gap: 8px; margin-top: 6px; }
+.rock-ms-add input {
+  flex: 1; height: 32px; border: 1px solid var(--line); border-radius: 6px; padding: 0 10px;
+  background: var(--surface); font-size: 13px;
+}
+.rock-ms-add input:focus { border-color: var(--brand-orange, var(--navy)); outline: none; }
+.rock-ms-add button {
+  height: 32px; border: none; border-radius: 6px; padding: 0 14px;
+  background: var(--brand-orange, var(--navy)); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.rock-ms-add button:disabled { opacity: .5; cursor: not-allowed; }
 .rock-due { color: var(--ink-soft); font-size: 14px; }
 .rock-row-actions button { border: none; background: none; cursor: pointer; font-size: 15px; opacity: .6; }
 .rock-row-actions button:hover { opacity: 1; }

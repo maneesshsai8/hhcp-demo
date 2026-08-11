@@ -325,7 +325,7 @@ export default function AccountabilityPage() {
               <p className="mini-label">Linked ownership</p>
               {!links ? <p className="fld-opt">Loading…</p> : (
                 <div className="seat-links">
-                  <LinkGroup title="Scorecard KPIs" items={links.kpis} />
+                  <LinkGroup title="Scorecard Measurables" items={links.kpis} />
                   <LinkGroup title="VCBs" items={links.vcbs} />
                   <LinkGroup title="Open To-Dos" items={links.todos} />
                 </div>
